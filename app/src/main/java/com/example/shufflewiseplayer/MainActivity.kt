@@ -3,8 +3,10 @@
 package com.example.shufflewiseplayer
 
 import android.Manifest
+import android.content.ContentUris
 import android.content.Context
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.MediaStore
@@ -14,6 +16,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -32,6 +35,8 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.media3.common.MediaItem
+import androidx.media3.exoplayer.ExoPlayer
 import com.example.shufflewiseplayer.ui.theme.ShuffleWisePlayerTheme
 import kotlinx.coroutines.delay
 
@@ -39,12 +44,18 @@ data class Song(
     val id: Long,
     val title: String,
     val artist: String,
-    val duration: Int
+    val duration: Int,
+    val uri: Uri
 )
 
 class MainActivity : ComponentActivity() {
+    private var player: ExoPlayer? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        player = ExoPlayer.Builder(this).build()
+
         enableEdgeToEdge()
         setContent {
             ShuffleWisePlayerTheme {
@@ -53,10 +64,27 @@ class MainActivity : ComponentActivity() {
                 if (showSplash) {
                     SplashScreen(onTimeout = { showSplash = false })
                 } else {
-                    MainScreen()
+                    MainScreen(onSongSelected = { song ->
+                        playSong(song)
+                    })
                 }
             }
         }
+    }
+
+    private fun playSong(song: Song) {
+        player?.let {
+            val mediaItem = MediaItem.fromUri(song.uri)
+            it.setMediaItem(mediaItem)
+            it.prepare()
+            it.play()
+        }
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        player?.release()
+        player = null
     }
 }
 
@@ -92,7 +120,7 @@ fun SplashScreen(onTimeout: () -> Unit) {
 }
 
 @Composable
-fun MainScreen() {
+fun MainScreen(onSongSelected: (Song) -> Unit) {
     val context = LocalContext.current
     var songs by remember { mutableStateOf(emptyList<Song>()) }
     var hasPermission by remember {
@@ -161,7 +189,7 @@ fun MainScreen() {
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(songs) { song ->
-                        SongItem(song)
+                        SongItem(song = song, onClick = { onSongSelected(song) })
                     }
                 }
             }
@@ -170,9 +198,11 @@ fun MainScreen() {
 }
 
 @Composable
-fun SongItem(song: Song) {
+fun SongItem(song: Song, onClick: () -> Unit) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Row(
@@ -239,7 +269,11 @@ fun fetchSongs(context: Context): List<Song> {
             val title = cursor.getString(titleColumn) ?: "Unknown"
             val artist = cursor.getString(artistColumn) ?: "Unknown"
             val duration = cursor.getInt(durationColumn)
-            songs.add(Song(id, title, artist, duration))
+            val contentUri: Uri = ContentUris.withAppendedId(
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                id
+            )
+            songs.add(Song(id, title, artist, duration, contentUri))
         }
     }
     return songs
@@ -249,6 +283,6 @@ fun fetchSongs(context: Context): List<Song> {
 @Composable
 fun MainScreenPreview() {
     ShuffleWisePlayerTheme {
-        MainScreen()
+        MainScreen(onSongSelected = {})
     }
 }
