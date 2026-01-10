@@ -21,8 +21,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -36,6 +35,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.example.shufflewiseplayer.ui.theme.ShuffleWisePlayerTheme
 import kotlinx.coroutines.delay
@@ -50,11 +51,24 @@ data class Song(
 
 class MainActivity : ComponentActivity() {
     private var player: ExoPlayer? = null
+    private var currentSong by mutableStateOf<Song?>(null)
+    private var isPlaying by mutableStateOf(false)
+    private var fullPlaylist by mutableStateOf<List<Song>>(emptyList())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        player = ExoPlayer.Builder(this).build()
+        player = ExoPlayer.Builder(this).build().apply {
+            addListener(object : Player.Listener {
+                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    this@MainActivity.currentSong = fullPlaylist.find { it.id.toString() == mediaItem?.mediaId }
+                }
+
+                override fun onIsPlayingChanged(playing: Boolean) {
+                    this@MainActivity.isPlaying = playing
+                }
+            })
+        }
 
         enableEdgeToEdge()
         setContent {
@@ -64,20 +78,44 @@ class MainActivity : ComponentActivity() {
                 if (showSplash) {
                     SplashScreen(onTimeout = { showSplash = false })
                 } else {
-                    MainScreen(onSongSelected = { song ->
-                        playSong(song)
-                    })
+                    MainScreen(
+                        currentSong = currentSong,
+                        isPlaying = isPlaying,
+                        onSongSelected = { song, playlist ->
+                            playSong(song, playlist)
+                        },
+                        onPlayPause = {
+                            if (isPlaying) player?.pause() else player?.play()
+                        },
+                        onNext = { player?.seekToNext() },
+                        onPrevious = { player?.seekToPrevious() }
+                    )
                 }
             }
         }
     }
 
-    private fun playSong(song: Song) {
-        player?.let {
-            val mediaItem = MediaItem.fromUri(song.uri)
-            it.setMediaItem(mediaItem)
-            it.prepare()
-            it.play()
+    private fun playSong(song: Song, playlist: List<Song>) {
+        if (fullPlaylist != playlist) {
+            fullPlaylist = playlist
+            val mediaItems = playlist.map { s ->
+                MediaItem.Builder()
+                    .setUri(s.uri)
+                    .setMediaId(s.id.toString())
+                    .setMediaMetadata(MediaMetadata.Builder()
+                        .setTitle(s.title)
+                        .setArtist(s.artist)
+                        .build())
+                    .build()
+            }
+            player?.setMediaItems(mediaItems)
+        }
+
+        val index = playlist.indexOf(song)
+        if (index != -1) {
+            player?.seekTo(index, 0)
+            player?.prepare()
+            player?.play()
         }
     }
 
@@ -120,7 +158,14 @@ fun SplashScreen(onTimeout: () -> Unit) {
 }
 
 @Composable
-fun MainScreen(onSongSelected: (Song) -> Unit) {
+fun MainScreen(
+    currentSong: Song?,
+    isPlaying: Boolean,
+    onSongSelected: (Song, List<Song>) -> Unit,
+    onPlayPause: () -> Unit,
+    onNext: () -> Unit,
+    onPrevious: () -> Unit
+) {
     val context = LocalContext.current
     var songs by remember { mutableStateOf(emptyList<Song>()) }
     var hasPermission by remember {
@@ -148,15 +193,27 @@ fun MainScreen(onSongSelected: (Song) -> Unit) {
             CenterAlignedTopAppBar(
                 title = { Text("Shuffle Wise Player", fontWeight = FontWeight.Bold) }
             )
+        },
+        bottomBar = {
+            if (currentSong != null) {
+                MiniPlayer(
+                    song = currentSong,
+                    isPlaying = isPlaying,
+                    onPlayPause = onPlayPause,
+                    onNext = onNext,
+                    onPrevious = onPrevious
+                )
+            }
         }
     ) { innerPadding ->
         Column(
             modifier = Modifier
                 .padding(innerPadding)
                 .fillMaxSize()
-                .padding(16.dp),
+                .padding(horizontal = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            Spacer(modifier = Modifier.height(16.dp))
             Button(
                 onClick = {
                     if (hasPermission) {
@@ -186,12 +243,90 @@ fun MainScreen(onSongSelected: (Song) -> Unit) {
             } else {
                 LazyColumn(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(bottom = 16.dp)
                 ) {
                     items(songs) { song ->
-                        SongItem(song = song, onClick = { onSongSelected(song) })
+                        SongItem(song = song, onClick = { onSongSelected(song, songs) })
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun MiniPlayer(
+    song: Song,
+    isPlaying: Boolean,
+    onPlayPause: () -> Unit,
+    onNext: () -> Unit,
+    onPrevious: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(80.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        tonalElevation = 8.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(horizontal = 12.dp, vertical = 8.dp)
+                .fillMaxSize(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Thumbnail
+            Card(
+                modifier = Modifier.size(56.dp),
+                shape = MaterialTheme.shapes.small
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.MusicNote,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // Song Info
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = song.title,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = song.artist,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
+            // Controls
+            IconButton(onClick = onPrevious) {
+                Icon(Icons.Default.SkipPrevious, contentDescription = "Previous")
+            }
+            IconButton(onClick = onPlayPause) {
+                Icon(
+                    imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                    contentDescription = if (isPlaying) "Pause" else "Play"
+                )
+            }
+            IconButton(onClick = onNext) {
+                Icon(Icons.Default.SkipNext, contentDescription = "Next")
             }
         }
     }
@@ -283,6 +418,13 @@ fun fetchSongs(context: Context): List<Song> {
 @Composable
 fun MainScreenPreview() {
     ShuffleWisePlayerTheme {
-        MainScreen(onSongSelected = {})
+        MainScreen(
+            currentSong = null,
+            isPlaying = false,
+            onSongSelected = { _, _ -> },
+            onPlayPause = {},
+            onNext = {},
+            onPrevious = {}
+        )
     }
 }
