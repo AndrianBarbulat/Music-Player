@@ -27,6 +27,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -38,6 +39,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import coil.compose.AsyncImage
 import com.example.shufflewiseplayer.ui.theme.ShuffleWisePlayerTheme
 import kotlinx.coroutines.delay
 
@@ -46,7 +48,8 @@ data class Song(
     val title: String,
     val artist: String,
     val duration: Int,
-    val uri: Uri
+    val uri: Uri,
+    val albumArtUri: Uri?
 )
 
 class MainActivity : ComponentActivity() {
@@ -105,6 +108,7 @@ class MainActivity : ComponentActivity() {
                     .setMediaMetadata(MediaMetadata.Builder()
                         .setTitle(s.title)
                         .setArtist(s.artist)
+                        .setArtworkUri(s.albumArtUri)
                         .build())
                     .build()
             }
@@ -290,7 +294,14 @@ fun MiniPlayer(
                     Icon(
                         Icons.Default.MusicNote,
                         contentDescription = null,
+                        modifier = Modifier.size(32.dp),
                         tint = MaterialTheme.colorScheme.primary
+                    )
+                    AsyncImage(
+                        model = song.albumArtUri,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
                     )
                 }
             }
@@ -346,12 +357,30 @@ fun SongItem(song: Song, onClick: () -> Unit) {
                 .fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                Icons.Default.MusicNote,
-                contentDescription = null,
+            Card(
                 modifier = Modifier.size(40.dp),
-                tint = MaterialTheme.colorScheme.primary
-            )
+                shape = MaterialTheme.shapes.small
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.primaryContainer),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.MusicNote,
+                        contentDescription = null,
+                        modifier = Modifier.size(24.dp),
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    AsyncImage(
+                        model = song.albumArtUri,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+            }
             Spacer(modifier = Modifier.width(16.dp))
             Column {
                 Text(
@@ -382,7 +411,8 @@ fun fetchSongs(context: Context): List<Song> {
         MediaStore.Audio.Media._ID,
         MediaStore.Audio.Media.TITLE,
         MediaStore.Audio.Media.ARTIST,
-        MediaStore.Audio.Media.DURATION
+        MediaStore.Audio.Media.DURATION,
+        MediaStore.Audio.Media.ALBUM_ID
     )
 
     val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
@@ -398,17 +428,28 @@ fun fetchSongs(context: Context): List<Song> {
         val titleColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
         val artistColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
         val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
+        val albumIdColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
 
         while (cursor.moveToNext()) {
             val id = cursor.getLong(idColumn)
             val title = cursor.getString(titleColumn) ?: "Unknown"
             val artist = cursor.getString(artistColumn) ?: "Unknown"
             val duration = cursor.getInt(durationColumn)
+            val albumId = cursor.getLong(albumIdColumn)
+
             val contentUri: Uri = ContentUris.withAppendedId(
                 MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
                 id
             )
-            songs.add(Song(id, title, artist, duration, contentUri))
+
+            val albumArtUri = if (albumId > 0) {
+                ContentUris.withAppendedId(
+                    Uri.parse("content://media/external/audio/albumart"),
+                    albumId
+                )
+            } else null
+
+            songs.add(Song(id, title, artist, duration, contentUri, albumArtUri))
         }
     }
     return songs

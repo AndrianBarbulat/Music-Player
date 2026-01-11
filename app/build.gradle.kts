@@ -58,6 +58,9 @@ dependencies {
     implementation(libs.androidx.media3.exoplayer)
     implementation(libs.androidx.media3.ui)
 
+    // Coil for Image Loading
+    implementation(libs.coil.compose)
+
     // View-based components
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
