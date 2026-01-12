@@ -41,7 +41,10 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import coil.compose.AsyncImage
 import com.example.shufflewiseplayer.ui.theme.ShuffleWisePlayerTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class Song(
     val id: Long,
@@ -171,7 +174,10 @@ fun MainScreen(
     onPrevious: () -> Unit
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val prefs = remember { context.getSharedPreferences("ShuffleWisePrefs", Context.MODE_PRIVATE) }
     var songs by remember { mutableStateOf(emptyList<Song>()) }
+    var isLoading by remember { mutableStateOf(false) }
     var hasPermission by remember {
         mutableStateOf(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -182,12 +188,51 @@ fun MainScreen(
         )
     }
 
+    var favoriteIds by remember {
+        mutableStateOf(prefs.getStringSet("favorite_ids", emptySet()) ?: emptySet())
+    }
+    var showFavoritesOnly by remember { mutableStateOf(false) }
+
+    val toggleFavorite = { songId: Long ->
+        val newFavorites = favoriteIds.toMutableSet()
+        val idStr = songId.toString()
+        if (newFavorites.contains(idStr)) {
+            newFavorites.remove(idStr)
+        } else {
+            newFavorites.add(idStr)
+        }
+        favoriteIds = newFavorites
+        prefs.edit().putStringSet("favorite_ids", newFavorites).apply()
+    }
+
+    val filteredSongs = remember(songs, favoriteIds, showFavoritesOnly) {
+        if (showFavoritesOnly) {
+            songs.filter { favoriteIds.contains(it.id.toString()) }
+        } else {
+            songs
+        }
+    }
+
+    // Auto-load songs if previously loaded and permission is granted
+    LaunchedEffect(hasPermission) {
+        if (hasPermission && prefs.getBoolean("songs_loaded", false)) {
+            isLoading = true
+            songs = withContext(Dispatchers.IO) { fetchSongs(context) }
+            isLoading = false
+        }
+    }
+
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         hasPermission = isGranted
         if (isGranted) {
-            songs = fetchSongs(context)
+            isLoading = true
+            scope.launch {
+                songs = withContext(Dispatchers.IO) { fetchSongs(context) }
+                prefs.edit().putBoolean("songs_loaded", true).apply()
+                isLoading = false
+            }
         }
     }
 
@@ -218,31 +263,57 @@ fun MainScreen(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Spacer(modifier = Modifier.height(16.dp))
-            Button(
-                onClick = {
-                    if (hasPermission) {
-                        songs = fetchSongs(context)
-                    } else {
-                        val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            Manifest.permission.READ_MEDIA_AUDIO
+
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        if (hasPermission) {
+                            isLoading = true
+                            scope.launch {
+                                songs = withContext(Dispatchers.IO) { fetchSongs(context) }
+                                prefs.edit().putBoolean("songs_loaded", true).apply()
+                                isLoading = false
+                            }
                         } else {
-                            Manifest.permission.READ_EXTERNAL_STORAGE
+                            val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                Manifest.permission.READ_MEDIA_AUDIO
+                            } else {
+                                Manifest.permission.READ_EXTERNAL_STORAGE
+                            }
+                            launcher.launch(permission)
                         }
-                        launcher.launch(permission)
-                    }
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Default.Search, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Find All Songs")
+                    },
+                    modifier = Modifier.weight(1f),
+                    enabled = !isLoading
+                ) {
+                    Icon(Icons.Default.Search, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Find All Songs")
+                }
+
+                Button(
+                    onClick = { showFavoritesOnly = !showFavoritesOnly },
+                    modifier = Modifier.weight(1f),
+                    colors = if (showFavoritesOnly) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary) else ButtonDefaults.buttonColors()
+                ) {
+                    Icon(if (showFavoritesOnly) Icons.Default.Favorite else Icons.Default.FavoriteBorder, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(if (showFavoritesOnly) "All Songs" else "Favorites")
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            if (songs.isEmpty()) {
+            if (isLoading) {
                 Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                    Text("No songs found. Click the button above to search.", color = Color.Gray)
+                    CircularProgressIndicator()
+                }
+            } else if (filteredSongs.isEmpty()) {
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    Text(
+                        if (showFavoritesOnly) "No favorites yet." else "No songs found. Click the button above to search.",
+                        color = Color.Gray
+                    )
                 }
             } else {
                 LazyColumn(
@@ -250,8 +321,13 @@ fun MainScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     contentPadding = PaddingValues(bottom = 16.dp)
                 ) {
-                    items(songs) { song ->
-                        SongItem(song = song, onClick = { onSongSelected(song, songs) })
+                    items(filteredSongs) { song ->
+                        SongItem(
+                            song = song,
+                            isFavorite = favoriteIds.contains(song.id.toString()),
+                            onFavoriteToggle = { toggleFavorite(song.id) },
+                            onClick = { onSongSelected(song, filteredSongs) }
+                        )
                     }
                 }
             }
@@ -344,7 +420,12 @@ fun MiniPlayer(
 }
 
 @Composable
-fun SongItem(song: Song, onClick: () -> Unit) {
+fun SongItem(
+    song: Song,
+    isFavorite: Boolean,
+    onFavoriteToggle: () -> Unit,
+    onClick: () -> Unit
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -382,7 +463,7 @@ fun SongItem(song: Song, onClick: () -> Unit) {
                 }
             }
             Spacer(modifier = Modifier.width(16.dp))
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = song.title,
                     fontWeight = FontWeight.Bold,
@@ -393,6 +474,13 @@ fun SongItem(song: Song, onClick: () -> Unit) {
                     text = song.artist,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.secondary
+                )
+            }
+            IconButton(onClick = onFavoriteToggle) {
+                Icon(
+                    imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                    contentDescription = "Toggle Favorite",
+                    tint = if (isFavorite) Color.Red else Color.Gray
                 )
             }
         }
