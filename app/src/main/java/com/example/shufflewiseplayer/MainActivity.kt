@@ -27,9 +27,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -45,14 +47,17 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.File
 
 data class Song(
     val id: Long,
     val title: String,
     val artist: String,
+    val album: String,
     val duration: Int,
     val uri: Uri,
-    val albumArtUri: Uri?
+    val albumArtUri: Uri?,
+    val folder: String
 )
 
 class MainActivity : ComponentActivity() {
@@ -213,6 +218,30 @@ fun MainScreen(
         }
     }
 
+    var selectedTabIndex by remember { mutableStateOf(0) }
+    val tabs = listOf("Songs", "Album", "Playlists", "Artist", "Folder")
+
+    var selectedFolder by remember { mutableStateOf<String?>(null) }
+    var selectedAlbum by remember { mutableStateOf<String?>(null) }
+    var selectedArtist by remember { mutableStateOf<String?>(null) }
+
+    val folders = remember(songs) {
+        songs.groupBy { it.folder }.mapValues { it.value.size }.toList().sortedBy { it.first }
+    }
+    val albums = remember(songs) {
+        songs.groupBy { it.album }.mapValues { it.value.size }.toList().sortedBy { it.first }
+    }
+    val artists = remember(songs) {
+        songs.groupBy { it.artist }.mapValues { it.value.size }.toList().sortedBy { it.first }
+    }
+
+    // Reset sub-navigation when switching tabs
+    LaunchedEffect(selectedTabIndex) {
+        selectedFolder = null
+        selectedAlbum = null
+        selectedArtist = null
+    }
+
     // Auto-load songs if previously loaded and permission is granted
     LaunchedEffect(hasPermission) {
         if (hasPermission && prefs.getBoolean("songs_loaded", false)) {
@@ -298,38 +327,223 @@ fun MainScreen(
                 ) {
                     Icon(if (showFavoritesOnly) Icons.Default.Favorite else Icons.Default.FavoriteBorder, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(if (showFavoritesOnly) "All Songs" else "Favorites")
+                    Text("Favorites")
                 }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            if (isLoading) {
-                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
-            } else if (filteredSongs.isEmpty()) {
-                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                    Text(
-                        if (showFavoritesOnly) "No favorites yet." else "No songs found. Click the button above to search.",
-                        color = Color.Gray
+            ScrollableTabRow(
+                selectedTabIndex = selectedTabIndex,
+                edgePadding = 0.dp,
+                containerColor = Color.Transparent,
+                divider = {}
+            ) {
+                tabs.forEachIndexed { index, title ->
+                    Tab(
+                        selected = selectedTabIndex == index,
+                        onClick = { selectedTabIndex = index },
+                        text = { Text(title) }
                     )
                 }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    contentPadding = PaddingValues(bottom = 16.dp)
-                ) {
-                    items(filteredSongs) { song ->
-                        SongItem(
-                            song = song,
-                            isFavorite = favoriteIds.contains(song.id.toString()),
-                            onFavoriteToggle = { toggleFavorite(song.id) },
-                            onClick = { onSongSelected(song, filteredSongs) }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Box(modifier = Modifier.weight(1f)) {
+                when (selectedTabIndex) {
+                    0 -> { // Songs tab
+                        if (isLoading) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                CircularProgressIndicator()
+                            }
+                        } else if (filteredSongs.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Text(
+                                    if (showFavoritesOnly) "No favorites yet." else "No songs found. Click the button above to search.",
+                                    color = Color.Gray,
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.fillMaxSize(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                contentPadding = PaddingValues(bottom = 16.dp)
+                            ) {
+                                items(filteredSongs) { song ->
+                                    SongItem(
+                                        song = song,
+                                        isFavorite = favoriteIds.contains(song.id.toString()),
+                                        onFavoriteToggle = { toggleFavorite(song.id) },
+                                        onClick = { onSongSelected(song, filteredSongs) }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    1 -> { // Album tab
+                        GroupedTab(
+                            title = "Albums",
+                            items = albums,
+                            isLoading = isLoading,
+                            icon = Icons.Default.Album,
+                            selectedItem = selectedAlbum,
+                            onItemClick = { selectedAlbum = it },
+                            onBackClick = { selectedAlbum = null },
+                            songs = songs,
+                            filterPredicate = { it.album == selectedAlbum },
+                            favoriteIds = favoriteIds,
+                            onToggleFavorite = toggleFavorite,
+                            onSongSelected = onSongSelected
+                        )
+                    }
+                    2 -> TabPlaceholder("Playlists")
+                    3 -> { // Artist tab
+                        GroupedTab(
+                            title = "Artists",
+                            items = artists,
+                            isLoading = isLoading,
+                            icon = Icons.Default.Person,
+                            selectedItem = selectedArtist,
+                            onItemClick = { selectedArtist = it },
+                            onBackClick = { selectedArtist = null },
+                            songs = songs,
+                            filterPredicate = { it.artist == selectedArtist },
+                            favoriteIds = favoriteIds,
+                            onToggleFavorite = toggleFavorite,
+                            onSongSelected = onSongSelected
+                        )
+                    }
+                    4 -> { // Folder tab
+                        GroupedTab(
+                            title = "Folders",
+                            items = folders,
+                            isLoading = isLoading,
+                            icon = Icons.Default.Folder,
+                            selectedItem = selectedFolder,
+                            onItemClick = { selectedFolder = it },
+                            onBackClick = { selectedFolder = null },
+                            songs = songs,
+                            filterPredicate = { it.folder == selectedFolder },
+                            favoriteIds = favoriteIds,
+                            onToggleFavorite = toggleFavorite,
+                            onSongSelected = onSongSelected
                         )
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+fun TabPlaceholder(name: String) {
+    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Text(text = "$name content coming soon", color = Color.Gray)
+    }
+}
+
+@Composable
+fun GroupedTab(
+    title: String,
+    items: List<Pair<String, Int>>,
+    isLoading: Boolean,
+    icon: ImageVector,
+    selectedItem: String?,
+    onItemClick: (String) -> Unit,
+    onBackClick: () -> Unit,
+    songs: List<Song>,
+    filterPredicate: (Song) -> Boolean,
+    favoriteIds: Set<String>,
+    onToggleFavorite: (Long) -> Unit,
+    onSongSelected: (Song, List<Song>) -> Unit
+) {
+    if (isLoading) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+    } else if (selectedItem == null) {
+        if (items.isEmpty()) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text("No $title found.", color = Color.Gray)
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(bottom = 16.dp)
+            ) {
+                items(items) { (name, count) ->
+                    GroupItem(name = name, count = count, icon = icon, onClick = { onItemClick(name) })
+                }
+            }
+        }
+    } else {
+        val groupSongs = remember(songs, selectedItem) { songs.filter(filterPredicate) }
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { onBackClick() }
+                    .padding(8.dp)
+            ) {
+                Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(text = selectedItem, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(bottom = 16.dp)
+            ) {
+                items(groupSongs) { song ->
+                    SongItem(
+                        song = song,
+                        isFavorite = favoriteIds.contains(song.id.toString()),
+                        onFavoriteToggle = { onToggleFavorite(song.id) },
+                        onClick = { onSongSelected(song, groupSongs) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun GroupItem(name: String, count: Int, icon: ImageVector, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .padding(12.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                modifier = Modifier.size(40.dp),
+                tint = MaterialTheme.colorScheme.primary
+            )
+            Spacer(modifier = Modifier.width(16.dp))
+            Column {
+                Text(
+                    text = name,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "$count songs",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.secondary
+                )
             }
         }
     }
@@ -471,9 +685,11 @@ fun SongItem(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = song.artist,
+                    text = "${song.artist} • ${song.album}",
                     style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.secondary
+                    color = MaterialTheme.colorScheme.secondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
             IconButton(onClick = onFavoriteToggle) {
@@ -499,8 +715,10 @@ fun fetchSongs(context: Context): List<Song> {
         MediaStore.Audio.Media._ID,
         MediaStore.Audio.Media.TITLE,
         MediaStore.Audio.Media.ARTIST,
+        MediaStore.Audio.Media.ALBUM,
         MediaStore.Audio.Media.DURATION,
-        MediaStore.Audio.Media.ALBUM_ID
+        MediaStore.Audio.Media.ALBUM_ID,
+        MediaStore.Audio.Media.DATA
     )
 
     val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
@@ -515,15 +733,20 @@ fun fetchSongs(context: Context): List<Song> {
         val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
         val titleColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
         val artistColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+        val albumColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
         val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
         val albumIdColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
+        val dataColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
 
         while (cursor.moveToNext()) {
             val id = cursor.getLong(idColumn)
             val title = cursor.getString(titleColumn) ?: "Unknown"
             val artist = cursor.getString(artistColumn) ?: "Unknown"
+            val album = cursor.getString(albumColumn) ?: "Unknown"
             val duration = cursor.getInt(durationColumn)
             val albumId = cursor.getLong(albumIdColumn)
+            val path = cursor.getString(dataColumn)
+            val folder = if (path != null) File(path).parentFile?.name ?: "Unknown" else "Unknown"
 
             val contentUri: Uri = ContentUris.withAppendedId(
                 MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
@@ -537,7 +760,7 @@ fun fetchSongs(context: Context): List<Song> {
                 )
             } else null
 
-            songs.add(Song(id, title, artist, duration, contentUri, albumArtUri))
+            songs.add(Song(id, title, artist, album, duration, contentUri, albumArtUri, folder))
         }
     }
     return songs
