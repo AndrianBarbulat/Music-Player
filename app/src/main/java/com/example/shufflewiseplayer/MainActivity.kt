@@ -434,7 +434,12 @@ fun MainScreen(
                                 onCreateClick = { isCreatingPlaylist = true },
                                 favoriteIds = favoriteIds,
                                 onToggleFavorite = toggleFavorite,
-                                onSongSelected = onSongSelected
+                                onSongSelected = onSongSelected,
+                                onDeletePlaylist = { playlist ->
+                                    playlists = playlists.filter { it.name != playlist.name }
+                                    savePlaylists(prefs, playlists)
+                                    prefs.edit().remove("playlist_ids_${playlist.name}").apply()
+                                }
                             )
                         }
                         3 -> { // Artist tab
@@ -560,7 +565,8 @@ fun PlaylistsTab(
     onCreateClick: () -> Unit,
     favoriteIds: Set<String>,
     onToggleFavorite: (Long) -> Unit,
-    onSongSelected: (Song, List<Song>) -> Unit
+    onSongSelected: (Song, List<Song>) -> Unit,
+    onDeletePlaylist: (Playlist) -> Unit
 ) {
     if (selectedPlaylist == null) {
         Column(modifier = Modifier.fillMaxSize()) {
@@ -588,7 +594,8 @@ fun PlaylistsTab(
                             name = playlist.name,
                             count = playlist.songIds.size,
                             icon = Icons.AutoMirrored.Filled.PlaylistPlay,
-                            onClick = { onPlaylistClick(playlist) }
+                            onClick = { onPlaylistClick(playlist) },
+                            onDeleteClick = { onDeletePlaylist(playlist) }
                         )
                     }
                 }
@@ -780,7 +787,13 @@ fun loadPlaylists(prefs: android.content.SharedPreferences): List<Playlist> {
 }
 
 @Composable
-fun GroupItem(name: String, count: Int, icon: ImageVector, onClick: () -> Unit) {
+fun GroupItem(
+    name: String,
+    count: Int,
+    icon: ImageVector,
+    onClick: () -> Unit,
+    onDeleteClick: (() -> Unit)? = null
+) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -800,7 +813,7 @@ fun GroupItem(name: String, count: Int, icon: ImageVector, onClick: () -> Unit) 
                 tint = MaterialTheme.colorScheme.primary
             )
             Spacer(modifier = Modifier.width(16.dp))
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = name,
                     fontWeight = FontWeight.Bold,
@@ -812,6 +825,11 @@ fun GroupItem(name: String, count: Int, icon: ImageVector, onClick: () -> Unit) 
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.secondary
                 )
+            }
+            if (onDeleteClick != null) {
+                IconButton(onClick = onDeleteClick) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red)
+                }
             }
         }
     }
