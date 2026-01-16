@@ -48,6 +48,7 @@ import coil.compose.AsyncImage
 import com.example.shufflewiseplayer.ui.theme.ShuffleWisePlayerTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -73,6 +74,7 @@ class MainActivity : ComponentActivity() {
     private var currentSong by mutableStateOf<Song?>(null)
     private var isPlaying by mutableStateOf(false)
     private var fullPlaylist by mutableStateOf<List<Song>>(emptyList())
+    private var playbackPosition by mutableLongStateOf(0L)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -94,12 +96,22 @@ class MainActivity : ComponentActivity() {
             ShuffleWisePlayerTheme {
                 var showSplash by remember { mutableStateOf(true) }
 
+                LaunchedEffect(isPlaying) {
+                    if (isPlaying) {
+                        while (isActive) {
+                            playbackPosition = player?.currentPosition ?: 0L
+                            delay(1000)
+                        }
+                    }
+                }
+
                 if (showSplash) {
                     SplashScreen(onTimeout = { showSplash = false })
                 } else {
                     MainScreen(
                         currentSong = currentSong,
                         isPlaying = isPlaying,
+                        playbackPosition = playbackPosition,
                         onSongSelected = { song, playlist ->
                             playSong(song, playlist)
                         },
@@ -181,6 +193,7 @@ fun SplashScreen(onTimeout: () -> Unit) {
 fun MainScreen(
     currentSong: Song?,
     isPlaying: Boolean,
+    playbackPosition: Long,
     onSongSelected: (Song, List<Song>) -> Unit,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
@@ -303,6 +316,7 @@ fun MainScreen(
                     MiniPlayer(
                         song = currentSong,
                         isPlaying = isPlaying,
+                        playbackPosition = playbackPosition,
                         onPlayPause = onPlayPause,
                         onNext = onNext,
                         onPrevious = onPrevious
@@ -568,6 +582,31 @@ fun PlaylistsTab(
     onSongSelected: (Song, List<Song>) -> Unit,
     onDeletePlaylist: (Playlist) -> Unit
 ) {
+    var playlistToDelete by remember { mutableStateOf<Playlist?>(null) }
+
+    if (playlistToDelete != null) {
+        AlertDialog(
+            onDismissRequest = { playlistToDelete = null },
+            title = { Text("Delete Playlist") },
+            text = { Text("Are you sure you want to delete this playlist?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        playlistToDelete?.let { onDeletePlaylist(it) }
+                        playlistToDelete = null
+                    }
+                ) {
+                    Text("Delete", color = Color.Red)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { playlistToDelete = null }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     if (selectedPlaylist == null) {
         Column(modifier = Modifier.fillMaxSize()) {
             Button(
@@ -595,7 +634,7 @@ fun PlaylistsTab(
                             count = playlist.songIds.size,
                             icon = Icons.AutoMirrored.Filled.PlaylistPlay,
                             onClick = { onPlaylistClick(playlist) },
-                            onDeleteClick = { onDeletePlaylist(playlist) }
+                            onDeleteClick = { playlistToDelete = playlist }
                         )
                     }
                 }
@@ -839,6 +878,7 @@ fun GroupItem(
 fun MiniPlayer(
     song: Song,
     isPlaying: Boolean,
+    playbackPosition: Long,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit
@@ -894,7 +934,7 @@ fun MiniPlayer(
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
-                    text = song.artist,
+                    text = "${formatTime(playbackPosition)} / ${formatTime(song.duration.toLong())}",
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                     maxLines = 1,
@@ -917,6 +957,13 @@ fun MiniPlayer(
             }
         }
     }
+}
+
+fun formatTime(milliseconds: Long): String {
+    val totalSeconds = milliseconds / 1000
+    val minutes = totalSeconds / 60
+    val seconds = totalSeconds % 60
+    return String.format("%02d:%02d", minutes, seconds)
 }
 
 @Composable
@@ -1059,6 +1106,7 @@ fun MainScreenPreview() {
         MainScreen(
             currentSong = null,
             isPlaying = false,
+            playbackPosition = 0L,
             onSongSelected = { _, _ -> },
             onPlayPause = {},
             onNext = {},
