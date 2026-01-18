@@ -17,6 +17,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -886,97 +887,112 @@ fun MiniPlayer(
     Surface(
         modifier = Modifier
             .fillMaxWidth()
-            .height(80.dp),
+            .wrapContentHeight(),
         color = MaterialTheme.colorScheme.surfaceVariant,
         tonalElevation = 8.dp
     ) {
-        Row(
+        Column(
             modifier = Modifier
                 .padding(horizontal = 12.dp, vertical = 8.dp)
-                .fillMaxSize(),
-            verticalAlignment = Alignment.CenterVertically
+                .fillMaxWidth()
         ) {
-            // Controls on the left
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                IconButton(onClick = onPrevious) {
-                    Icon(Icons.Default.SkipPrevious, contentDescription = "Previous")
-                }
-                IconButton(onClick = onPlayPause) {
-                    Icon(
-                        imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                        contentDescription = if (isPlaying) "Pause" else "Play"
-                    )
-                }
-                IconButton(onClick = onNext) {
-                    Icon(Icons.Default.SkipNext, contentDescription = "Next")
-                }
+            // Marquee Title at the top, spanning above both controls and art
+            key(song.id) { // key(song.id) ensures marquee resets when song changes
+                Text(
+                    text = song.title,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .basicMarquee(
+                            iterations = Int.MAX_VALUE,
+                            repeatDelayMillis = 2000
+                        ),
+                    textAlign = TextAlign.Center
+                )
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            // Song Info and Time on the right
             Row(
-                modifier = Modifier.weight(1f),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.End
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(
-                    modifier = Modifier.weight(1f),
-                    horizontalAlignment = Alignment.End
+                // Controls on the left
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    Text(
-                        text = song.title,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        textAlign = TextAlign.End
-                    )
-                    Text(
-                        text = song.artist,
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        textAlign = TextAlign.End
-                    )
-                    Text(
-                        text = "${formatTime(playbackPosition)} / ${formatTime(song.duration.toLong())}",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.primary,
-                        fontWeight = FontWeight.Medium,
-                        textAlign = TextAlign.End
-                    )
+                    IconButton(onClick = onPrevious) {
+                        Icon(Icons.Default.SkipPrevious, contentDescription = "Previous")
+                    }
+                    IconButton(onClick = onPlayPause) {
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = if (isPlaying) "Pause" else "Play"
+                        )
+                    }
+                    IconButton(onClick = onNext) {
+                        Icon(Icons.Default.SkipNext, contentDescription = "Next")
+                    }
                 }
 
                 Spacer(modifier = Modifier.width(12.dp))
 
-                // Thumbnail on the far right
-                Card(
-                    modifier = Modifier.size(56.dp),
-                    shape = MaterialTheme.shapes.small
+                // Artist and Time in the middle/right
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.End
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.primaryContainer),
-                        contentAlignment = Alignment.Center
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        horizontalAlignment = Alignment.End
                     ) {
-                        Icon(
-                            Icons.Default.MusicNote,
-                            contentDescription = null,
-                            modifier = Modifier.size(32.dp),
-                            tint = MaterialTheme.colorScheme.primary
+                        Text(
+                            text = song.artist,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.End
                         )
-                        AsyncImage(
-                            model = song.albumArtUri,
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
+                        Text(
+                            text = "${formatTime(playbackPosition)} / ${formatTime(song.duration.toLong())}",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                            fontWeight = FontWeight.Medium,
+                            textAlign = TextAlign.End
                         )
+                    }
+
+                    Spacer(modifier = Modifier.width(12.dp))
+
+                    // Thumbnail on the far right
+                    Card(
+                        modifier = Modifier.size(48.dp),
+                        shape = MaterialTheme.shapes.small
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.MusicNote,
+                                contentDescription = null,
+                                modifier = Modifier.size(24.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            AsyncImage(
+                                model = song.albumArtUri,
+                                contentDescription = null,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Crop
+                            )
+                        }
                     }
                 }
             }
