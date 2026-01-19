@@ -1,4 +1,4 @@
-package com.example.shufflewiseplayer
+package com.example.musicplayerdeck
 
 import org.junit.Test
 

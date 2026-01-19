@@ -22,6 +22,6 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "shufflewiseplayer"
+rootProject.name = "Music Player Deck"
 include(":app")
  

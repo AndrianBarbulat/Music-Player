@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "com.example.shufflewiseplayer"
+    namespace = "com.example.musicplayerdeck"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "com.example.shufflewiseplayer"
+        applicationId = "com.example.musicplayerdeck"
         minSdk = 24
         targetSdk = 35
         versionCode = 1

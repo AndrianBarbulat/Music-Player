@@ -1,6 +1,6 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 
-package com.example.shufflewiseplayer
+package com.example.musicplayerdeck
 
 import android.Manifest
 import android.content.ContentUris
@@ -19,6 +19,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -27,6 +28,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -46,7 +48,9 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import coil.compose.AsyncImage
-import com.example.shufflewiseplayer.ui.theme.ShuffleWisePlayerTheme
+import com.example.musicplayerdeck.ui.theme.MusicPlayerDeckTheme
+import com.example.musicplayerdeck.ui.theme.MintGradient
+import com.example.musicplayerdeck.ui.theme.DarkMintGradient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -94,7 +98,7 @@ class MainActivity : ComponentActivity() {
 
         enableEdgeToEdge()
         setContent {
-            ShuffleWisePlayerTheme {
+            MusicPlayerDeckTheme {
                 var showSplash by remember { mutableStateOf(true) }
 
                 LaunchedEffect(isPlaying) {
@@ -166,25 +170,27 @@ fun SplashScreen(onTimeout: () -> Unit) {
         onTimeout()
     }
 
+    val gradient = if (isSystemInDarkTheme()) DarkMintGradient else MintGradient
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.primaryContainer),
+            .background(gradient),
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
-                text = "Shuffle Wise Player",
+                text = "Music Player Deck",
                 fontSize = 32.sp,
                 fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onPrimaryContainer
+                color = MaterialTheme.colorScheme.onBackground
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = "By Andrian",
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
             )
         }
     }
@@ -202,7 +208,7 @@ fun MainScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val prefs = remember { context.getSharedPreferences("ShuffleWisePrefs", Context.MODE_PRIVATE) }
+    val prefs = remember { context.getSharedPreferences("MusicPlayerDeckPrefs", Context.MODE_PRIVATE) }
     var songs by remember { mutableStateOf(emptyList<Song>()) }
     var isLoading by remember { mutableStateOf(false) }
     var hasPermission by remember {
@@ -292,6 +298,8 @@ fun MainScreen(
         }
     }
 
+    val gradient = if (isSystemInDarkTheme()) DarkMintGradient else MintGradient
+
     if (isCreatingPlaylist) {
         CreatePlaylistScreen(
             allSongs = songs,
@@ -309,7 +317,10 @@ fun MainScreen(
             modifier = Modifier.fillMaxSize(),
             topBar = {
                 CenterAlignedTopAppBar(
-                    title = { Text("Shuffle Wise Player", fontWeight = FontWeight.Bold) }
+                    title = { Text("Music Player Deck", fontWeight = FontWeight.Bold) },
+                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                        containerColor = Color.Transparent
+                    )
                 )
             },
             bottomBar = {
@@ -323,183 +334,201 @@ fun MainScreen(
                         onPrevious = onPrevious
                     )
                 }
-            }
+            },
+            containerColor = Color.Transparent
         ) { innerPadding ->
-            Column(
+            Box(
                 modifier = Modifier
-                    .padding(innerPadding)
                     .fillMaxSize()
-                    .padding(horizontal = 16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .background(gradient)
+                    .padding(innerPadding)
             ) {
-                Spacer(modifier = Modifier.height(16.dp))
-
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(
-                        onClick = {
-                            if (hasPermission) {
-                                isLoading = true
-                                scope.launch {
-                                    songs = withContext(Dispatchers.IO) { fetchSongs(context) }
-                                    prefs.edit().putBoolean("songs_loaded", true).apply()
-                                    isLoading = false
-                                }
-                            } else {
-                                val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                    Manifest.permission.READ_MEDIA_AUDIO
-                                } else {
-                                    Manifest.permission.READ_EXTERNAL_STORAGE
-                                }
-                                launcher.launch(permission)
-                            }
-                        },
-                        modifier = Modifier.weight(1f),
-                        enabled = !isLoading
-                    ) {
-                        Icon(Icons.Default.Search, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Find All Songs")
-                    }
-
-                    Button(
-                        onClick = { showFavoritesOnly = !showFavoritesOnly },
-                        modifier = Modifier.weight(1f),
-                        colors = if (showFavoritesOnly) ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary) else ButtonDefaults.buttonColors()
-                    ) {
-                        Icon(if (showFavoritesOnly) Icons.Default.Favorite else Icons.Default.FavoriteBorder, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Favorites")
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                ScrollableTabRow(
-                    selectedTabIndex = selectedTabIndex,
-                    edgePadding = 0.dp,
-                    containerColor = Color.Transparent,
-                    divider = {}
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    tabs.forEachIndexed { index, title ->
-                        Tab(
-                            selected = selectedTabIndex == index,
-                            onClick = { selectedTabIndex = index },
-                            text = { Text(title) }
-                        )
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = {
+                                if (hasPermission) {
+                                    isLoading = true
+                                    scope.launch {
+                                        songs = withContext(Dispatchers.IO) { fetchSongs(context) }
+                                        prefs.edit().putBoolean("songs_loaded", true).apply()
+                                        isLoading = false
+                                    }
+                                } else {
+                                    val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                        Manifest.permission.READ_MEDIA_AUDIO
+                                    } else {
+                                        Manifest.permission.READ_EXTERNAL_STORAGE
+                                    }
+                                    launcher.launch(permission)
+                                }
+                            },
+                            modifier = Modifier.weight(1f),
+                            enabled = !isLoading,
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                            )
+                        ) {
+                            Icon(Icons.Default.Search, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Find All Songs")
+                        }
+
+                        Button(
+                            onClick = { showFavoritesOnly = !showFavoritesOnly },
+                            modifier = Modifier.weight(1f),
+                            colors = if (showFavoritesOnly) 
+                                ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary) 
+                            else 
+                                ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f))
+                        ) {
+                            Icon(if (showFavoritesOnly) Icons.Default.Favorite else Icons.Default.FavoriteBorder, contentDescription = null)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Favorites")
+                        }
                     }
-                }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
-                Box(modifier = Modifier.weight(1f)) {
-                    when (selectedTabIndex) {
-                        0 -> { // Songs tab
-                            if (isLoading) {
-                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator()
-                                }
-                            } else if (filteredSongs.isEmpty()) {
-                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    ScrollableTabRow(
+                        selectedTabIndex = selectedTabIndex,
+                        edgePadding = 0.dp,
+                        containerColor = Color.Transparent,
+                        divider = {},
+                        indicator = { tabPositions ->
+                            TabRowDefaults.SecondaryIndicator(
+                                Modifier.tabIndicatorOffset(tabPositions[selectedTabIndex]),
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                        }
+                    ) {
+                        tabs.forEachIndexed { index, title ->
+                            Tab(
+                                selected = selectedTabIndex == index,
+                                onClick = { selectedTabIndex = index },
+                                text = { 
                                     Text(
-                                        if (showFavoritesOnly) "No favorites yet." else "No songs found. Click the button above to search.",
-                                        color = Color.Gray,
-                                        textAlign = TextAlign.Center
-                                    )
+                                        title, 
+                                        color = if (selectedTabIndex == index) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                                        fontWeight = if (selectedTabIndex == index) FontWeight.Bold else FontWeight.Normal
+                                    ) 
                                 }
-                            } else {
-                                LazyColumn(
-                                    modifier = Modifier.fillMaxSize(),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                                    contentPadding = PaddingValues(bottom = 16.dp)
-                                ) {
-                                    items(filteredSongs) { song ->
-                                        SongItem(
-                                            song = song,
-                                            isFavorite = favoriteIds.contains(song.id.toString()),
-                                            onFavoriteToggle = { toggleFavorite(song.id) },
-                                            onClick = { onSongSelected(song, filteredSongs) }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Box(modifier = Modifier.weight(1f)) {
+                        when (selectedTabIndex) {
+                            0 -> { // Songs tab
+                                if (isLoading) {
+                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        CircularProgressIndicator(color = MaterialTheme.colorScheme.onBackground)
+                                    }
+                                } else if (filteredSongs.isEmpty()) {
+                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Text(
+                                            if (showFavoritesOnly) "No favorites yet." else "No songs found. Click the button above to search.",
+                                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                                            textAlign = TextAlign.Center
                                         )
+                                    }
+                                } else {
+                                    LazyColumn(
+                                        modifier = Modifier.fillMaxSize(),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        contentPadding = PaddingValues(bottom = 16.dp)
+                                    ) {
+                                        items(filteredSongs) { song ->
+                                            SongItem(
+                                                song = song,
+                                                isFavorite = favoriteIds.contains(song.id.toString()),
+                                                onFavoriteToggle = { toggleFavorite(song.id) },
+                                                onClick = { onSongSelected(song, filteredSongs) }
+                                            )
+                                        }
                                     }
                                 }
                             }
-                        }
-                        1 -> { // Album tab
-                            GroupedTab(
-                                title = "Albums",
-                                items = albums,
-                                isLoading = isLoading,
-                                icon = Icons.Default.Album,
-                                selectedItem = selectedAlbum,
-                                onItemClick = { selectedAlbum = it },
-                                onBackClick = { selectedAlbum = null },
-                                songs = songs,
-                                filterPredicate = { it.album == selectedAlbum },
-                                favoriteIds = favoriteIds,
-                                onToggleFavorite = toggleFavorite,
-                                onSongSelected = onSongSelected
-                            )
-                        }
-                        2 -> { // Playlists tab
-                            PlaylistsTab(
-                                playlists = playlists,
-                                songs = songs,
-                                selectedPlaylist = selectedPlaylist,
-                                onPlaylistClick = { selectedPlaylist = it },
-                                onBackClick = { selectedPlaylist = null },
-                                onCreateClick = { isCreatingPlaylist = true },
-                                favoriteIds = favoriteIds,
-                                onToggleFavorite = toggleFavorite,
-                                onSongSelected = onSongSelected,
-                                onDeletePlaylist = { playlist ->
-                                    playlists = playlists.filter { it.name != playlist.name }
-                                    savePlaylists(prefs, playlists)
-                                    prefs.edit().remove("playlist_ids_${playlist.name}").apply()
-                                }
-                            )
-                        }
-                        3 -> { // Artist tab
-                            GroupedTab(
-                                title = "Artists",
-                                items = artists,
-                                isLoading = isLoading,
-                                icon = Icons.Default.Person,
-                                selectedItem = selectedArtist,
-                                onItemClick = { selectedArtist = it },
-                                onBackClick = { selectedArtist = null },
-                                songs = songs,
-                                filterPredicate = { it.artist == selectedArtist },
-                                favoriteIds = favoriteIds,
-                                onToggleFavorite = toggleFavorite,
-                                onSongSelected = onSongSelected
-                            )
-                        }
-                        4 -> { // Folder tab
-                            GroupedTab(
-                                title = "Folders",
-                                items = folders,
-                                isLoading = isLoading,
-                                icon = Icons.Default.Folder,
-                                selectedItem = selectedFolder,
-                                onItemClick = { selectedFolder = it },
-                                onBackClick = { selectedFolder = null },
-                                songs = songs,
-                                filterPredicate = { it.folder == selectedFolder },
-                                favoriteIds = favoriteIds,
-                                onToggleFavorite = toggleFavorite,
-                                onSongSelected = onSongSelected
-                            )
+                            1 -> { // Album tab
+                                GroupedTab(
+                                    title = "Albums",
+                                    items = albums,
+                                    isLoading = isLoading,
+                                    icon = Icons.Default.Album,
+                                    selectedItem = selectedAlbum,
+                                    onItemClick = { selectedAlbum = it },
+                                    onBackClick = { selectedAlbum = null },
+                                    songs = songs,
+                                    filterPredicate = { it.album == selectedAlbum },
+                                    favoriteIds = favoriteIds,
+                                    onToggleFavorite = toggleFavorite,
+                                    onSongSelected = onSongSelected
+                                )
+                            }
+                            2 -> { // Playlists tab
+                                PlaylistsTab(
+                                    playlists = playlists,
+                                    songs = songs,
+                                    selectedPlaylist = selectedPlaylist,
+                                    onPlaylistClick = { selectedPlaylist = it },
+                                    onBackClick = { selectedPlaylist = null },
+                                    onCreateClick = { isCreatingPlaylist = true },
+                                    favoriteIds = favoriteIds,
+                                    onToggleFavorite = toggleFavorite,
+                                    onSongSelected = onSongSelected,
+                                    onDeletePlaylist = { playlist ->
+                                        playlists = playlists.filter { it.name != playlist.name }
+                                        savePlaylists(prefs, playlists)
+                                        prefs.edit().remove("playlist_ids_${playlist.name}").apply()
+                                    }
+                                )
+                            }
+                            3 -> { // Artist tab
+                                GroupedTab(
+                                    title = "Artists",
+                                    items = artists,
+                                    isLoading = isLoading,
+                                    icon = Icons.Default.Person,
+                                    selectedItem = selectedArtist,
+                                    onItemClick = { selectedArtist = it },
+                                    onBackClick = { selectedArtist = null },
+                                    songs = songs,
+                                    filterPredicate = { it.artist == selectedArtist },
+                                    favoriteIds = favoriteIds,
+                                    onToggleFavorite = toggleFavorite,
+                                    onSongSelected = onSongSelected
+                                )
+                            }
+                            4 -> { // Folder tab
+                                GroupedTab(
+                                    title = "Folders",
+                                    items = folders,
+                                    isLoading = isLoading,
+                                    icon = Icons.Default.Folder,
+                                    selectedItem = selectedFolder,
+                                    onItemClick = { selectedFolder = it },
+                                    onBackClick = { selectedFolder = null },
+                                    songs = songs,
+                                    filterPredicate = { it.folder == selectedFolder },
+                                    favoriteIds = favoriteIds,
+                                    onToggleFavorite = toggleFavorite,
+                                    onSongSelected = onSongSelected
+                                )
+                            }
                         }
                     }
                 }
             }
         }
-    }
-}
-
-@Composable
-fun TabPlaceholder(name: String) {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(text = "$name content coming soon", color = Color.Gray)
     }
 }
 
@@ -520,12 +549,12 @@ fun GroupedTab(
 ) {
     if (isLoading) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
+            CircularProgressIndicator(color = MaterialTheme.colorScheme.onBackground)
         }
     } else if (selectedItem == null) {
         if (items.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("No $title found.", color = Color.Gray)
+                Text("No $title found.", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
             }
         } else {
             LazyColumn(
@@ -548,9 +577,15 @@ fun GroupedTab(
                     .clickable { onBackClick() }
                     .padding(8.dp)
             ) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onBackground)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(text = selectedItem, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    text = selectedItem, 
+                    fontWeight = FontWeight.Bold, 
+                    maxLines = 1, 
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
             }
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
@@ -612,7 +647,8 @@ fun PlaylistsTab(
         Column(modifier = Modifier.fillMaxSize()) {
             Button(
                 onClick = onCreateClick,
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f))
             ) {
                 Icon(Icons.Default.Add, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
@@ -621,7 +657,7 @@ fun PlaylistsTab(
 
             if (playlists.isEmpty()) {
                 Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                    Text("No playlists yet.", color = Color.Gray)
+                    Text("No playlists yet.", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
                 }
             } else {
                 LazyColumn(
@@ -653,9 +689,15 @@ fun PlaylistsTab(
                     .clickable { onBackClick() }
                     .padding(8.dp)
             ) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onBackground)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(text = selectedPlaylist.name, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    text = selectedPlaylist.name, 
+                    fontWeight = FontWeight.Bold, 
+                    maxLines = 1, 
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
             }
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
@@ -690,119 +732,138 @@ fun CreatePlaylistScreen(
         allSongs.filter { it.title.contains(searchQuery, ignoreCase = true) || it.artist.contains(searchQuery, ignoreCase = true) }
     }
 
+    val gradient = if (isSystemInDarkTheme()) DarkMintGradient else MintGradient
+
     BackHandler { onDismiss() }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background
+        color = Color.Transparent
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize().padding(16.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onDismiss) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                }
-                Text("Create Playlist", style = MaterialTheme.typography.headlineSmall)
-            }
-
-            OutlinedTextField(
-                value = playlistName,
-                onValueChange = { playlistName = it },
-                label = { Text("Playlist Name") },
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
-            )
-
-            OutlinedTextField(
-                value = searchQuery,
-                onValueChange = { searchQuery = it },
-                label = { Text("Search Songs") },
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
-            )
-
-            Text("Selection Options", fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+        Box(modifier = Modifier.fillMaxSize().background(gradient)) {
+            Column(
+                modifier = Modifier.fillMaxSize().padding(16.dp)
             ) {
-                var showFolderDialog by remember { mutableStateOf(false) }
-                Button(onClick = { showFolderDialog = true }) {
-                    Text("Select Folder")
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onBackground)
+                    }
+                    Text("Create Playlist", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground)
                 }
 
-                if (showFolderDialog) {
-                    AlertDialog(
-                        onDismissRequest = { showFolderDialog = false },
-                        title = { Text("Select Folder") },
-                        text = {
-                            LazyColumn {
-                                items(folders) { (folderName, count) ->
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().clickable {
-                                            val folderSongs = allSongs.filter { it.folder == folderName }
-                                            selectedSongs = selectedSongs + folderSongs.map { it.id }.toSet()
-                                            showFolderDialog = false
-                                        }.padding(12.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(Icons.Default.Folder, contentDescription = null)
-                                        Spacer(modifier = Modifier.width(12.dp))
-                                        Text("$folderName ($count songs)")
+                OutlinedTextField(
+                    value = playlistName,
+                    onValueChange = { playlistName = it },
+                    label = { Text("Playlist Name") },
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        unfocusedBorderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.3f),
+                        focusedBorderColor = MaterialTheme.colorScheme.primary
+                    )
+                )
+
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    label = { Text("Search Songs") },
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        unfocusedBorderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.3f),
+                        focusedBorderColor = MaterialTheme.colorScheme.primary
+                    )
+                )
+
+                Text("Selection Options", fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.onBackground)
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    var showFolderDialog by remember { mutableStateOf(false) }
+                    Button(
+                        onClick = { showFolderDialog = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f))
+                    ) {
+                        Text("Select Folder")
+                    }
+
+                    if (showFolderDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showFolderDialog = false },
+                            title = { Text("Select Folder") },
+                            text = {
+                                LazyColumn {
+                                    items(folders) { (folderName, count) ->
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth().clickable {
+                                                val folderSongs = allSongs.filter { it.folder == folderName }
+                                                selectedSongs = selectedSongs + folderSongs.map { it.id }.toSet()
+                                                showFolderDialog = false
+                                            }.padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(Icons.Default.Folder, contentDescription = null)
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Text("$folderName ($count songs)")
+                                        }
                                     }
                                 }
-                            }
-                        },
-                        confirmButton = {
-                            TextButton(onClick = { showFolderDialog = false }) { Text("Cancel") }
-                        }
-                    )
-                }
-
-                Button(onClick = { selectedSongs = emptySet() }) {
-                    Text("Clear All")
-                }
-            }
-
-            Text("Songs (${selectedSongs.size} selected)", fontWeight = FontWeight.Bold)
-
-            LazyColumn(modifier = Modifier.weight(1f)) {
-                items(filteredSongs) { song ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth().clickable {
-                            selectedSongs = if (selectedSongs.contains(song.id)) {
-                                selectedSongs - song.id
-                            } else {
-                                selectedSongs + song.id
-                            }
-                        }.padding(vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Checkbox(
-                            checked = selectedSongs.contains(song.id),
-                            onCheckedChange = { checked ->
-                                selectedSongs = if (checked == true) {
-                                    selectedSongs + song.id
-                                } else {
-                                    selectedSongs - song.id
-                                }
+                            },
+                            confirmButton = {
+                                TextButton(onClick = { showFolderDialog = false }) { Text("Cancel") }
                             }
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Column {
-                            Text(song.title, fontWeight = FontWeight.Medium)
-                            Text(song.artist, style = MaterialTheme.typography.bodySmall)
+                    }
+
+                    Button(
+                        onClick = { selectedSongs = emptySet() },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.8f))
+                    ) {
+                        Text("Clear All")
+                    }
+                }
+
+                Text("Songs (${selectedSongs.size} selected)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+
+                LazyColumn(modifier = Modifier.weight(1f)) {
+                    items(filteredSongs) { song ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().clickable {
+                                selectedSongs = if (selectedSongs.contains(song.id)) {
+                                    selectedSongs - song.id
+                                } else {
+                                    selectedSongs + song.id
+                                }
+                            }.padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = selectedSongs.contains(song.id),
+                                onCheckedChange = { checked ->
+                                    selectedSongs = if (checked == true) {
+                                        selectedSongs + song.id
+                                    } else {
+                                        selectedSongs - song.id
+                                    }
+                                }
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(song.title, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onBackground)
+                                Text(song.artist, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
+                            }
                         }
                     }
                 }
-            }
 
-            Button(
-                onClick = { if (playlistName.isNotBlank()) onSave(playlistName, selectedSongs) },
-                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                enabled = playlistName.isNotBlank() && selectedSongs.isNotEmpty()
-            ) {
-                Text("Save Playlist")
+                Button(
+                    onClick = { if (playlistName.isNotBlank()) onSave(playlistName, selectedSongs) },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    enabled = playlistName.isNotBlank() && selectedSongs.isNotEmpty(),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Text("Save Playlist")
+                }
             }
         }
     }
@@ -838,7 +899,10 @@ fun GroupItem(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f)
+        )
     ) {
         Row(
             modifier = Modifier
@@ -858,7 +922,8 @@ fun GroupItem(
                     text = name,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                     text = "$count songs",
@@ -868,7 +933,7 @@ fun GroupItem(
             }
             if (onDeleteClick != null) {
                 IconButton(onClick = onDeleteClick) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red)
+                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red.copy(alpha = 0.7f))
                 }
             }
         }
@@ -888,7 +953,7 @@ fun MiniPlayer(
         modifier = Modifier
             .fillMaxWidth()
             .wrapContentHeight(),
-        color = MaterialTheme.colorScheme.surfaceVariant,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f),
         tonalElevation = 8.dp
     ) {
         Column(
@@ -909,7 +974,8 @@ fun MiniPlayer(
                             iterations = Int.MAX_VALUE,
                             repeatDelayMillis = 2000
                         ),
-                    textAlign = TextAlign.Center
+                    textAlign = TextAlign.Center,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
@@ -925,16 +991,17 @@ fun MiniPlayer(
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     IconButton(onClick = onPrevious) {
-                        Icon(Icons.Default.SkipPrevious, contentDescription = "Previous")
+                        Icon(Icons.Default.SkipPrevious, contentDescription = "Previous", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                     IconButton(onClick = onPlayPause) {
                         Icon(
                             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                            contentDescription = if (isPlaying) "Pause" else "Play"
+                            contentDescription = if (isPlaying) "Pause" else "Play",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     IconButton(onClick = onNext) {
-                        Icon(Icons.Default.SkipNext, contentDescription = "Next")
+                        Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
 
@@ -1018,7 +1085,10 @@ fun SongItem(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f)
+        )
     ) {
         Row(
             modifier = Modifier
@@ -1056,7 +1126,8 @@ fun SongItem(
                     text = song.title,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
                     text = "${song.artist} • ${song.album}",
@@ -1070,7 +1141,7 @@ fun SongItem(
                 Icon(
                     imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                     contentDescription = "Toggle Favorite",
-                    tint = if (isFavorite) Color.Red else Color.Gray
+                    tint = if (isFavorite) Color.Red.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
                 )
             }
         }
@@ -1143,7 +1214,7 @@ fun fetchSongs(context: Context): List<Song> {
 @Preview(showBackground = true)
 @Composable
 fun MainScreenPreview() {
-    ShuffleWisePlayerTheme {
+    MusicPlayerDeckTheme {
         MainScreen(
             currentSong = null,
             isPlaying = false,
