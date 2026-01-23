@@ -226,7 +226,6 @@ fun MainScreen(
     var favoriteIds by remember {
         mutableStateOf(prefs.getStringSet("favorite_ids", emptySet()) ?: emptySet())
     }
-    var showFavoritesOnly by remember { mutableStateOf(false) }
 
     var playlists by remember { mutableStateOf(loadPlaylists(prefs)) }
     var isCreatingPlaylist by remember { mutableStateOf(false) }
@@ -243,16 +242,8 @@ fun MainScreen(
         prefs.edit().putStringSet("favorite_ids", newFavorites).apply()
     }
 
-    val filteredSongs = remember(songs, favoriteIds, showFavoritesOnly) {
-        if (showFavoritesOnly) {
-            songs.filter { favoriteIds.contains(it.id.toString()) }
-        } else {
-            songs
-        }
-    }
-
     var selectedTabIndex by remember { mutableStateOf(0) }
-    val tabs = listOf("Songs", "Album", "Playlists", "Artist", "Folder")
+    val tabs = listOf("Songs", "Favorites", "Album", "Playlists", "Artist", "Folder")
 
     var selectedFolder by remember { mutableStateOf<String?>(null) }
     var selectedAlbum by remember { mutableStateOf<String?>(null) }
@@ -353,48 +344,33 @@ fun MainScreen(
                 ) {
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(
-                            onClick = {
-                                if (hasPermission) {
-                                    isLoading = true
-                                    scope.launch {
-                                        songs = withContext(Dispatchers.IO) { fetchSongs(context) }
-                                        prefs.edit().putBoolean("songs_loaded", true).apply()
-                                        isLoading = false
-                                    }
-                                } else {
-                                    val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                        Manifest.permission.READ_MEDIA_AUDIO
-                                    } else {
-                                        Manifest.permission.READ_EXTERNAL_STORAGE
-                                    }
-                                    launcher.launch(permission)
+                    Button(
+                        onClick = {
+                            if (hasPermission) {
+                                isLoading = true
+                                scope.launch {
+                                    songs = withContext(Dispatchers.IO) { fetchSongs(context) }
+                                    prefs.edit().putBoolean("songs_loaded", true).apply()
+                                    isLoading = false
                                 }
-                            },
-                            modifier = Modifier.weight(1f),
-                            enabled = !isLoading,
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
-                            )
-                        ) {
-                            Icon(Icons.Default.Search, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Find All Songs")
-                        }
-
-                        Button(
-                            onClick = { showFavoritesOnly = !showFavoritesOnly },
-                            modifier = Modifier.weight(1f),
-                            colors = if (showFavoritesOnly) 
-                                ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary) 
-                            else 
-                                ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f))
-                        ) {
-                            Icon(if (showFavoritesOnly) Icons.Default.Favorite else Icons.Default.FavoriteBorder, contentDescription = null)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Favorites")
-                        }
+                            } else {
+                                val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    Manifest.permission.READ_MEDIA_AUDIO
+                                } else {
+                                    Manifest.permission.READ_EXTERNAL_STORAGE
+                                }
+                                launcher.launch(permission)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        enabled = !isLoading,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                        )
+                    ) {
+                        Icon(Icons.Default.Search, contentDescription = null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Find All Songs")
                     }
 
                     Spacer(modifier = Modifier.height(16.dp))
@@ -435,10 +411,10 @@ fun MainScreen(
                                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                         CircularProgressIndicator(color = MaterialTheme.colorScheme.onBackground)
                                     }
-                                } else if (filteredSongs.isEmpty()) {
+                                } else if (songs.isEmpty()) {
                                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                         Text(
-                                            if (showFavoritesOnly) "No favorites yet." else "No songs found. Click the button above to search.",
+                                            "No songs found. Click the button above to search.",
                                             color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
                                             textAlign = TextAlign.Center
                                         )
@@ -449,18 +425,47 @@ fun MainScreen(
                                         verticalArrangement = Arrangement.spacedBy(8.dp),
                                         contentPadding = PaddingValues(bottom = 16.dp)
                                     ) {
-                                        items(filteredSongs) { song ->
+                                        items(songs) { song ->
                                             SongItem(
                                                 song = song,
                                                 isFavorite = favoriteIds.contains(song.id.toString()),
                                                 onFavoriteToggle = { toggleFavorite(song.id) },
-                                                onClick = { onSongSelected(song, filteredSongs) }
+                                                onClick = { onSongSelected(song, songs) }
                                             )
                                         }
                                     }
                                 }
                             }
-                            1 -> { // Album tab
+                            1 -> { // Favorites tab
+                                val favoriteSongs = remember(songs, favoriteIds) {
+                                    songs.filter { favoriteIds.contains(it.id.toString()) }
+                                }
+                                if (favoriteSongs.isEmpty()) {
+                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Text(
+                                            "No favorites yet.",
+                                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                                            textAlign = TextAlign.Center
+                                        )
+                                    }
+                                } else {
+                                    LazyColumn(
+                                        modifier = Modifier.fillMaxSize(),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        contentPadding = PaddingValues(bottom = 16.dp)
+                                    ) {
+                                        items(favoriteSongs) { song ->
+                                            SongItem(
+                                                song = song,
+                                                isFavorite = true,
+                                                onFavoriteToggle = { toggleFavorite(song.id) },
+                                                onClick = { onSongSelected(song, favoriteSongs) }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                            2 -> { // Album tab
                                 GroupedTab(
                                     title = "Albums",
                                     items = albums,
@@ -476,7 +481,7 @@ fun MainScreen(
                                     onSongSelected = onSongSelected
                                 )
                             }
-                            2 -> { // Playlists tab
+                            3 -> { // Playlists tab
                                 PlaylistsTab(
                                     playlists = playlists,
                                     songs = songs,
@@ -494,7 +499,7 @@ fun MainScreen(
                                     }
                                 )
                             }
-                            3 -> { // Artist tab
+                            4 -> { // Artist tab
                                 GroupedTab(
                                     title = "Artists",
                                     items = artists,
@@ -510,7 +515,7 @@ fun MainScreen(
                                     onSongSelected = onSongSelected
                                 )
                             }
-                            4 -> { // Folder tab
+                            5 -> { // Folder tab
                                 GroupedTab(
                                     title = "Folders",
                                     items = folders,
