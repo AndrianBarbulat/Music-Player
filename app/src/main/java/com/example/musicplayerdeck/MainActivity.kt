@@ -58,6 +58,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.random.Random
 
 data class Song(
     val id: Long,
@@ -79,7 +80,9 @@ class MainActivity : ComponentActivity() {
     private var player: ExoPlayer? = null
     private var currentSong by mutableStateOf<Song?>(null)
     private var isPlaying by mutableStateOf(false)
-    private var fullPlaylist by mutableStateOf<List<Song>>(emptyList())
+    private var originalPlaylist by mutableStateOf<List<Song>>(emptyList())
+    private var activePlaybackQueue by mutableStateOf<List<Song>>(emptyList())
+    private var isShuffleEnabled by mutableStateOf(false)
     private var playbackPosition by mutableLongStateOf(0L)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -89,7 +92,7 @@ class MainActivity : ComponentActivity() {
         player = ExoPlayer.Builder(this).build().apply {
             addListener(object : Player.Listener {
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                    this@MainActivity.currentSong = fullPlaylist.find { it.id.toString() == mediaItem?.mediaId }
+                    this@MainActivity.currentSong = activePlaybackQueue.find { it.id.toString() == mediaItem?.mediaId }
                 }
 
                 override fun onIsPlayingChanged(playing: Boolean) {
@@ -118,10 +121,12 @@ class MainActivity : ComponentActivity() {
                     MainScreen(
                         currentSong = currentSong,
                         isPlaying = isPlaying,
+                        isShuffleEnabled = isShuffleEnabled,
                         playbackPosition = playbackPosition,
                         onSongSelected = { song, playlist ->
                             playSong(song, playlist)
                         },
+                        onShuffleToggle = { toggleShuffleMode() },
                         onPlayPause = {
                             if (isPlaying) player?.pause() else player?.play()
                         },
@@ -134,27 +139,74 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun playSong(song: Song, playlist: List<Song>) {
-        if (fullPlaylist != playlist) {
-            fullPlaylist = playlist
-            val mediaItems = playlist.map { s ->
-                MediaItem.Builder()
-                    .setUri(s.uri)
-                    .setMediaId(s.id.toString())
-                    .setMediaMetadata(MediaMetadata.Builder()
-                        .setTitle(s.title)
-                        .setArtist(s.artist)
-                        .setArtworkUri(s.albumArtUri)
-                        .build())
-                    .build()
-            }
-            player?.setMediaItems(mediaItems)
+        if (playlist.isEmpty()) return
+
+        if (originalPlaylist != playlist || activePlaybackQueue.isEmpty()) {
+            originalPlaylist = playlist
+            activePlaybackQueue = generatePlaybackQueue(playlist, song)
+            player?.setMediaItems(buildMediaItems(activePlaybackQueue))
         }
 
-        val index = playlist.indexOf(song)
+        val index = activePlaybackQueue.indexOfFirst { it.id == song.id }
         if (index != -1) {
             player?.seekTo(index, 0)
             player?.prepare()
             player?.play()
+        }
+    }
+
+    private fun toggleShuffleMode() {
+        if (originalPlaylist.isEmpty()) {
+            isShuffleEnabled = !isShuffleEnabled
+            return
+        }
+
+        val wasPlaying = isPlaying
+        val currentPositionMs = player?.currentPosition ?: 0L
+        val anchorSong = currentSong
+
+        isShuffleEnabled = !isShuffleEnabled
+        activePlaybackQueue = generatePlaybackQueue(originalPlaylist, anchorSong)
+
+        player?.setMediaItems(buildMediaItems(activePlaybackQueue))
+
+        val anchorIndex = anchorSong?.let { song ->
+            activePlaybackQueue.indexOfFirst { it.id == song.id }
+        } ?: 0
+
+        val safeIndex = if (anchorIndex >= 0) anchorIndex else 0
+        player?.seekTo(safeIndex, currentPositionMs)
+        player?.prepare()
+
+        if (wasPlaying) {
+            player?.play()
+        }
+    }
+
+    private fun generatePlaybackQueue(playlist: List<Song>, anchorSong: Song?): List<Song> {
+        if (!isShuffleEnabled) return playlist
+        if (playlist.size <= 1) return playlist
+
+        val anchorId = anchorSong?.id ?: return playlist.shuffled(Random(System.currentTimeMillis()))
+        val remainingSongs = playlist.filterNot { it.id == anchorId }
+            .shuffled(Random(System.currentTimeMillis()))
+
+        return listOfNotNull(anchorSong) + remainingSongs
+    }
+
+    private fun buildMediaItems(queue: List<Song>): List<MediaItem> {
+        return queue.map { s ->
+            MediaItem.Builder()
+                .setUri(s.uri)
+                .setMediaId(s.id.toString())
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setTitle(s.title)
+                        .setArtist(s.artist)
+                        .setArtworkUri(s.albumArtUri)
+                        .build()
+                )
+                .build()
         }
     }
 
@@ -202,8 +254,10 @@ fun SplashScreen(onTimeout: () -> Unit) {
 fun MainScreen(
     currentSong: Song?,
     isPlaying: Boolean,
+    isShuffleEnabled: Boolean,
     playbackPosition: Long,
     onSongSelected: (Song, List<Song>) -> Unit,
+    onShuffleToggle: () -> Unit,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit
@@ -407,60 +461,66 @@ fun MainScreen(
                     Box(modifier = Modifier.weight(1f)) {
                         when (selectedTabIndex) {
                             0 -> { // Songs tab
-                                if (isLoading) {
-                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                        CircularProgressIndicator(color = MaterialTheme.colorScheme.onBackground)
-                                    }
-                                } else if (songs.isEmpty()) {
-                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                        Text(
-                                            "No songs found. Click the button above to search.",
-                                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
-                                            textAlign = TextAlign.Center
-                                        )
-                                    }
-                                } else {
-                                    LazyColumn(
-                                        modifier = Modifier.fillMaxSize(),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                                        contentPadding = PaddingValues(bottom = 16.dp)
-                                    ) {
-                                        items(songs) { song ->
-                                            SongItem(
-                                                song = song,
-                                                isFavorite = favoriteIds.contains(song.id.toString()),
-                                                onFavoriteToggle = { toggleFavorite(song.id) },
-                                                onClick = { onSongSelected(song, songs) }
+                                Column {
+                                    MinimalShuffleToggle(isShuffleEnabled, onShuffleToggle)
+                                    if (isLoading) {
+                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                            CircularProgressIndicator(color = MaterialTheme.colorScheme.onBackground)
+                                        }
+                                    } else if (songs.isEmpty()) {
+                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                            Text(
+                                                "No songs found. Click the button above to search.",
+                                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                                                textAlign = TextAlign.Center
                                             )
+                                        }
+                                    } else {
+                                        LazyColumn(
+                                            modifier = Modifier.fillMaxSize(),
+                                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                                            contentPadding = PaddingValues(bottom = 16.dp)
+                                        ) {
+                                            items(songs) { song ->
+                                                SongItem(
+                                                    song = song,
+                                                    isFavorite = favoriteIds.contains(song.id.toString()),
+                                                    onFavoriteToggle = { toggleFavorite(song.id) },
+                                                    onClick = { onSongSelected(song, songs) }
+                                                )
+                                            }
                                         }
                                     }
                                 }
                             }
                             1 -> { // Favorites tab
-                                val favoriteSongs = remember(songs, favoriteIds) {
-                                    songs.filter { favoriteIds.contains(it.id.toString()) }
-                                }
-                                if (favoriteSongs.isEmpty()) {
-                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                        Text(
-                                            "No favorites yet.",
-                                            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
-                                            textAlign = TextAlign.Center
-                                        )
+                                Column {
+                                    MinimalShuffleToggle(isShuffleEnabled, onShuffleToggle)
+                                    val favoriteSongs = remember(songs, favoriteIds) {
+                                        songs.filter { favoriteIds.contains(it.id.toString()) }
                                     }
-                                } else {
-                                    LazyColumn(
-                                        modifier = Modifier.fillMaxSize(),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                                        contentPadding = PaddingValues(bottom = 16.dp)
-                                    ) {
-                                        items(favoriteSongs) { song ->
-                                            SongItem(
-                                                song = song,
-                                                isFavorite = true,
-                                                onFavoriteToggle = { toggleFavorite(song.id) },
-                                                onClick = { onSongSelected(song, favoriteSongs) }
+                                    if (favoriteSongs.isEmpty()) {
+                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                            Text(
+                                                "No favorites yet.",
+                                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                                                textAlign = TextAlign.Center
                                             )
+                                        }
+                                    } else {
+                                        LazyColumn(
+                                            modifier = Modifier.fillMaxSize(),
+                                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                                            contentPadding = PaddingValues(bottom = 16.dp)
+                                        ) {
+                                            items(favoriteSongs) { song ->
+                                                SongItem(
+                                                    song = song,
+                                                    isFavorite = true,
+                                                    onFavoriteToggle = { toggleFavorite(song.id) },
+                                                    onClick = { onSongSelected(song, favoriteSongs) }
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -477,6 +537,8 @@ fun MainScreen(
                                     songs = songs,
                                     filterPredicate = { it.album == selectedAlbum },
                                     favoriteIds = favoriteIds,
+                                    isShuffleEnabled = isShuffleEnabled,
+                                    onShuffleToggle = onShuffleToggle,
                                     onToggleFavorite = toggleFavorite,
                                     onSongSelected = onSongSelected
                                 )
@@ -490,6 +552,8 @@ fun MainScreen(
                                     onBackClick = { selectedPlaylist = null },
                                     onCreateClick = { isCreatingPlaylist = true },
                                     favoriteIds = favoriteIds,
+                                    isShuffleEnabled = isShuffleEnabled,
+                                    onShuffleToggle = onShuffleToggle,
                                     onToggleFavorite = toggleFavorite,
                                     onSongSelected = onSongSelected,
                                     onDeletePlaylist = { playlist ->
@@ -511,6 +575,8 @@ fun MainScreen(
                                     songs = songs,
                                     filterPredicate = { it.artist == selectedArtist },
                                     favoriteIds = favoriteIds,
+                                    isShuffleEnabled = isShuffleEnabled,
+                                    onShuffleToggle = onShuffleToggle,
                                     onToggleFavorite = toggleFavorite,
                                     onSongSelected = onSongSelected
                                 )
@@ -527,6 +593,8 @@ fun MainScreen(
                                     songs = songs,
                                     filterPredicate = { it.folder == selectedFolder },
                                     favoriteIds = favoriteIds,
+                                    isShuffleEnabled = isShuffleEnabled,
+                                    onShuffleToggle = onShuffleToggle,
                                     onToggleFavorite = toggleFavorite,
                                     onSongSelected = onSongSelected
                                 )
@@ -535,6 +603,28 @@ fun MainScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun MinimalShuffleToggle(isShuffleEnabled: Boolean, onShuffleToggle: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 8.dp),
+        horizontalArrangement = Arrangement.End
+    ) {
+        IconButton(
+            onClick = onShuffleToggle,
+            modifier = Modifier.size(32.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Shuffle,
+                contentDescription = "Shuffle",
+                tint = if (isShuffleEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
+                modifier = Modifier.size(20.dp)
+            )
         }
     }
 }
@@ -551,6 +641,8 @@ fun GroupedTab(
     songs: List<Song>,
     filterPredicate: (Song) -> Boolean,
     favoriteIds: Set<String>,
+    isShuffleEnabled: Boolean,
+    onShuffleToggle: () -> Unit,
     onToggleFavorite: (Long) -> Unit,
     onSongSelected: (Song, List<Song>) -> Unit
 ) {
@@ -559,18 +651,21 @@ fun GroupedTab(
             CircularProgressIndicator(color = MaterialTheme.colorScheme.onBackground)
         }
     } else if (selectedItem == null) {
-        if (items.isEmpty()) {
-            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text("No $title found.", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(bottom = 16.dp)
-            ) {
-                items(items) { (name, count) ->
-                    GroupItem(name = name, count = count, icon = icon, onClick = { onItemClick(name) })
+        Column {
+            MinimalShuffleToggle(isShuffleEnabled, onShuffleToggle)
+            if (items.isEmpty()) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text("No $title found.", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(bottom = 16.dp)
+                ) {
+                    items(items) { (name, count) ->
+                        GroupItem(name = name, count = count, icon = icon, onClick = { onItemClick(name) })
+                    }
                 }
             }
         }
@@ -581,18 +676,30 @@ fun GroupedTab(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onBackClick() }
-                    .padding(8.dp)
+                    .padding(vertical = 4.dp)
             ) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onBackground)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = selectedItem, 
-                    fontWeight = FontWeight.Bold, 
-                    maxLines = 1, 
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f).clickable { onBackClick() }.padding(4.dp)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onBackground)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = selectedItem, 
+                        fontWeight = FontWeight.Bold, 
+                        maxLines = 1, 
+                        overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                }
+                IconButton(onClick = onShuffleToggle, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Shuffle,
+                        contentDescription = "Shuffle",
+                        tint = if (isShuffleEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
@@ -621,6 +728,8 @@ fun PlaylistsTab(
     onBackClick: () -> Unit,
     onCreateClick: () -> Unit,
     favoriteIds: Set<String>,
+    isShuffleEnabled: Boolean,
+    onShuffleToggle: () -> Unit,
     onToggleFavorite: (Long) -> Unit,
     onSongSelected: (Song, List<Song>) -> Unit,
     onDeletePlaylist: (Playlist) -> Unit
@@ -652,14 +761,24 @@ fun PlaylistsTab(
 
     if (selectedPlaylist == null) {
         Column(modifier = Modifier.fillMaxSize()) {
-            Button(
-                onClick = onCreateClick,
-                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f))
-            ) {
-                Icon(Icons.Default.Add, contentDescription = null)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text("Create Playlist")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Button(
+                    onClick = onCreateClick,
+                    modifier = Modifier.weight(1f).padding(bottom = 8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f))
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Create Playlist")
+                }
+                IconButton(onClick = onShuffleToggle, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp).size(32.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Shuffle,
+                        contentDescription = "Shuffle",
+                        tint = if (isShuffleEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
 
             if (playlists.isEmpty()) {
@@ -693,18 +812,30 @@ fun PlaylistsTab(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clickable { onBackClick() }
-                    .padding(8.dp)
+                    .padding(vertical = 4.dp)
             ) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onBackground)
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = selectedPlaylist.name, 
-                    fontWeight = FontWeight.Bold, 
-                    maxLines = 1, 
-                    overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onBackground
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.weight(1f).clickable { onBackClick() }.padding(4.dp)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onBackground)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = selectedPlaylist.name, 
+                        fontWeight = FontWeight.Bold, 
+                        maxLines = 1, 
+                        overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
+                }
+                IconButton(onClick = onShuffleToggle, modifier = Modifier.size(32.dp)) {
+                    Icon(
+                        imageVector = Icons.Default.Shuffle,
+                        contentDescription = "Shuffle",
+                        tint = if (isShuffleEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
@@ -1225,8 +1356,10 @@ fun MainScreenPreview() {
         MainScreen(
             currentSong = null,
             isPlaying = false,
+            isShuffleEnabled = false,
             playbackPosition = 0L,
             onSongSelected = { _, _ -> },
+            onShuffleToggle = {},
             onPlayPause = {},
             onNext = {},
             onPrevious = {}
