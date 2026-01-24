@@ -89,7 +89,11 @@ class MainActivity : ComponentActivity() {
         installSplashScreen()
         super.onCreate(savedInstanceState)
 
+        val prefs = getSharedPreferences("MusicPlayerDeckPrefs", Context.MODE_PRIVATE)
+        isShuffleEnabled = prefs.getBoolean("shuffle_enabled", false)
+
         player = ExoPlayer.Builder(this).build().apply {
+            shuffleModeEnabled = false // We handle shuffle logic manually for true sequence control
             addListener(object : Player.Listener {
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                     this@MainActivity.currentSong = activePlaybackQueue.find { it.id.toString() == mediaItem?.mediaId }
@@ -104,8 +108,6 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             MusicPlayerDeckTheme {
-                var showSplash by remember { mutableStateOf(true) }
-
                 LaunchedEffect(isPlaying) {
                     if (isPlaying) {
                         while (isActive) {
@@ -115,25 +117,24 @@ class MainActivity : ComponentActivity() {
                     }
                 }
 
-                if (showSplash) {
-                    SplashScreen(onTimeout = { showSplash = false })
-                } else {
-                    MainScreen(
-                        currentSong = currentSong,
-                        isPlaying = isPlaying,
-                        isShuffleEnabled = isShuffleEnabled,
-                        playbackPosition = playbackPosition,
-                        onSongSelected = { song, playlist ->
-                            playSong(song, playlist)
-                        },
-                        onShuffleToggle = { toggleShuffleMode() },
-                        onPlayPause = {
-                            if (isPlaying) player?.pause() else player?.play()
-                        },
-                        onNext = { player?.seekToNext() },
-                        onPrevious = { player?.seekToPrevious() }
-                    )
-                }
+                MainScreen(
+                    currentSong = currentSong,
+                    isPlaying = isPlaying,
+                    isShuffleEnabled = isShuffleEnabled,
+                    playbackPosition = playbackPosition,
+                    onSongSelected = { song, playlist ->
+                        playSong(song, playlist)
+                    },
+                    onShuffleToggle = {
+                        toggleShuffleMode()
+                        prefs.edit().putBoolean("shuffle_enabled", isShuffleEnabled).apply()
+                    },
+                    onPlayPause = {
+                        if (isPlaying) player?.pause() else player?.play()
+                    },
+                    onNext = { player?.seekToNext() },
+                    onPrevious = { player?.seekToPrevious() }
+                )
             }
         }
     }
@@ -218,39 +219,6 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun SplashScreen(onTimeout: () -> Unit) {
-    LaunchedEffect(Unit) {
-        delay(2000)
-        onTimeout()
-    }
-
-    val gradient = if (isSystemInDarkTheme()) DarkMintGradient else MintGradient
-
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(gradient),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = "Music Player Deck",
-                fontSize = 32.sp,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onBackground
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "By Andrian",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Medium,
-                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f)
-            )
-        }
-    }
-}
-
-@Composable
 fun MainScreen(
     currentSong: Song?,
     isPlaying: Boolean,
@@ -266,7 +234,6 @@ fun MainScreen(
     val scope = rememberCoroutineScope()
     val prefs = remember { context.getSharedPreferences("MusicPlayerDeckPrefs", Context.MODE_PRIVATE) }
     var songs by remember { mutableStateOf(emptyList<Song>()) }
-    var isLoading by remember { mutableStateOf(false) }
     var hasPermission by remember {
         mutableStateOf(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -325,9 +292,7 @@ fun MainScreen(
     // Auto-load songs if previously loaded and permission is granted
     LaunchedEffect(hasPermission) {
         if (hasPermission && prefs.getBoolean("songs_loaded", false)) {
-            isLoading = true
             songs = withContext(Dispatchers.IO) { fetchSongs(context) }
-            isLoading = false
         }
     }
 
@@ -336,11 +301,9 @@ fun MainScreen(
     ) { isGranted ->
         hasPermission = isGranted
         if (isGranted) {
-            isLoading = true
             scope.launch {
                 songs = withContext(Dispatchers.IO) { fetchSongs(context) }
                 prefs.edit().putBoolean("songs_loaded", true).apply()
-                isLoading = false
             }
         }
     }
@@ -401,11 +364,9 @@ fun MainScreen(
                     Button(
                         onClick = {
                             if (hasPermission) {
-                                isLoading = true
                                 scope.launch {
                                     songs = withContext(Dispatchers.IO) { fetchSongs(context) }
                                     prefs.edit().putBoolean("songs_loaded", true).apply()
-                                    isLoading = false
                                 }
                             } else {
                                 val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -417,7 +378,6 @@ fun MainScreen(
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        enabled = !isLoading,
                         colors = ButtonDefaults.buttonColors(
                             containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
                         )
@@ -463,11 +423,7 @@ fun MainScreen(
                             0 -> { // Songs tab
                                 Column {
                                     MinimalShuffleToggle(isShuffleEnabled, onShuffleToggle)
-                                    if (isLoading) {
-                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                            CircularProgressIndicator(color = MaterialTheme.colorScheme.onBackground)
-                                        }
-                                    } else if (songs.isEmpty()) {
+                                    if (songs.isEmpty()) {
                                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                             Text(
                                                 "No songs found. Click the button above to search.",
@@ -529,7 +485,6 @@ fun MainScreen(
                                 GroupedTab(
                                     title = "Albums",
                                     items = albums,
-                                    isLoading = isLoading,
                                     icon = Icons.Default.Album,
                                     selectedItem = selectedAlbum,
                                     onItemClick = { selectedAlbum = it },
@@ -567,7 +522,6 @@ fun MainScreen(
                                 GroupedTab(
                                     title = "Artists",
                                     items = artists,
-                                    isLoading = isLoading,
                                     icon = Icons.Default.Person,
                                     selectedItem = selectedArtist,
                                     onItemClick = { selectedArtist = it },
@@ -585,7 +539,6 @@ fun MainScreen(
                                 GroupedTab(
                                     title = "Folders",
                                     items = folders,
-                                    isLoading = isLoading,
                                     icon = Icons.Default.Folder,
                                     selectedItem = selectedFolder,
                                     onItemClick = { selectedFolder = it },
@@ -633,7 +586,6 @@ fun MinimalShuffleToggle(isShuffleEnabled: Boolean, onShuffleToggle: () -> Unit)
 fun GroupedTab(
     title: String,
     items: List<Pair<String, Int>>,
-    isLoading: Boolean,
     icon: ImageVector,
     selectedItem: String?,
     onItemClick: (String) -> Unit,
@@ -646,11 +598,7 @@ fun GroupedTab(
     onToggleFavorite: (Long) -> Unit,
     onSongSelected: (Song, List<Song>) -> Unit
 ) {
-    if (isLoading) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(color = MaterialTheme.colorScheme.onBackground)
-        }
-    } else if (selectedItem == null) {
+    if (selectedItem == null) {
         Column {
             MinimalShuffleToggle(isShuffleEnabled, onShuffleToggle)
             if (items.isEmpty()) {
