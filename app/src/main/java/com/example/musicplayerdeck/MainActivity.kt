@@ -234,6 +234,7 @@ fun MainScreen(
     val scope = rememberCoroutineScope()
     val prefs = remember { context.getSharedPreferences("MusicPlayerDeckPrefs", Context.MODE_PRIVATE) }
     var songs by remember { mutableStateOf(emptyList<Song>()) }
+    var isLoading by remember { mutableStateOf(false) }
     var hasPermission by remember {
         mutableStateOf(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -292,7 +293,9 @@ fun MainScreen(
     // Auto-load songs if previously loaded and permission is granted
     LaunchedEffect(hasPermission) {
         if (hasPermission && prefs.getBoolean("songs_loaded", false)) {
+            isLoading = true
             songs = withContext(Dispatchers.IO) { fetchSongs(context) }
+            isLoading = false
         }
     }
 
@@ -301,9 +304,11 @@ fun MainScreen(
     ) { isGranted ->
         hasPermission = isGranted
         if (isGranted) {
+            isLoading = true
             scope.launch {
                 songs = withContext(Dispatchers.IO) { fetchSongs(context) }
                 prefs.edit().putBoolean("songs_loaded", true).apply()
+                isLoading = false
             }
         }
     }
@@ -364,9 +369,11 @@ fun MainScreen(
                     Button(
                         onClick = {
                             if (hasPermission) {
+                                isLoading = true
                                 scope.launch {
                                     songs = withContext(Dispatchers.IO) { fetchSongs(context) }
                                     prefs.edit().putBoolean("songs_loaded", true).apply()
+                                    isLoading = false
                                 }
                             } else {
                                 val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -423,7 +430,11 @@ fun MainScreen(
                             0 -> { // Songs tab
                                 Column {
                                     MinimalShuffleToggle(isShuffleEnabled, onShuffleToggle)
-                                    if (songs.isEmpty()) {
+                                    if (isLoading) {
+                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                            CircularProgressIndicator(color = MaterialTheme.colorScheme.onBackground)
+                                        }
+                                    } else if (songs.isEmpty()) {
                                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                             Text(
                                                 "No songs found. Click the button above to search.",
@@ -434,7 +445,7 @@ fun MainScreen(
                                     } else {
                                         LazyColumn(
                                             modifier = Modifier.fillMaxSize(),
-                                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp),
                                             contentPadding = PaddingValues(bottom = 16.dp)
                                         ) {
                                             items(songs) { song ->
@@ -466,7 +477,7 @@ fun MainScreen(
                                     } else {
                                         LazyColumn(
                                             modifier = Modifier.fillMaxSize(),
-                                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalArrangement = Arrangement.spacedBy(4.dp),
                                             contentPadding = PaddingValues(bottom = 16.dp)
                                         ) {
                                             items(favoriteSongs) { song ->
@@ -485,6 +496,7 @@ fun MainScreen(
                                 GroupedTab(
                                     title = "Albums",
                                     items = albums,
+                                    isLoading = isLoading,
                                     icon = Icons.Default.Album,
                                     selectedItem = selectedAlbum,
                                     onItemClick = { selectedAlbum = it },
@@ -522,6 +534,7 @@ fun MainScreen(
                                 GroupedTab(
                                     title = "Artists",
                                     items = artists,
+                                    isLoading = isLoading,
                                     icon = Icons.Default.Person,
                                     selectedItem = selectedArtist,
                                     onItemClick = { selectedArtist = it },
@@ -539,6 +552,7 @@ fun MainScreen(
                                 GroupedTab(
                                     title = "Folders",
                                     items = folders,
+                                    isLoading = isLoading,
                                     icon = Icons.Default.Folder,
                                     selectedItem = selectedFolder,
                                     onItemClick = { selectedFolder = it },
@@ -586,6 +600,7 @@ fun MinimalShuffleToggle(isShuffleEnabled: Boolean, onShuffleToggle: () -> Unit)
 fun GroupedTab(
     title: String,
     items: List<Pair<String, Int>>,
+    isLoading: Boolean,
     icon: ImageVector,
     selectedItem: String?,
     onItemClick: (String) -> Unit,
@@ -598,7 +613,11 @@ fun GroupedTab(
     onToggleFavorite: (Long) -> Unit,
     onSongSelected: (Song, List<Song>) -> Unit
 ) {
-    if (selectedItem == null) {
+    if (isLoading) {
+        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(color = MaterialTheme.colorScheme.onBackground)
+        }
+    } else if (selectedItem == null) {
         Column {
             MinimalShuffleToggle(isShuffleEnabled, onShuffleToggle)
             if (items.isEmpty()) {
@@ -608,7 +627,7 @@ fun GroupedTab(
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                     contentPadding = PaddingValues(bottom = 16.dp)
                 ) {
                     items(items) { (name, count) ->
@@ -651,7 +670,7 @@ fun GroupedTab(
             }
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
                 items(groupSongs) { song ->
@@ -736,7 +755,7 @@ fun PlaylistsTab(
             } else {
                 LazyColumn(
                     modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
                     contentPadding = PaddingValues(bottom = 16.dp)
                 ) {
                     items(playlists) { playlist ->
@@ -787,7 +806,7 @@ fun PlaylistsTab(
             }
             LazyColumn(
                 modifier = Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
                 items(playlistSongs) { song ->
@@ -985,28 +1004,29 @@ fun GroupItem(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f)
         )
     ) {
         Row(
             modifier = Modifier
-                .padding(12.dp)
+                .padding(8.dp)
                 .fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
                 icon,
                 contentDescription = null,
-                modifier = Modifier.size(40.dp),
+                modifier = Modifier.size(32.dp),
                 tint = MaterialTheme.colorScheme.primary
             )
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = name,
                     fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     color = MaterialTheme.colorScheme.onSurface
@@ -1014,12 +1034,13 @@ fun GroupItem(
                 Text(
                     text = "$count songs",
                     style = MaterialTheme.typography.bodySmall,
+                    fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.secondary
                 )
             }
             if (onDeleteClick != null) {
-                IconButton(onClick = onDeleteClick) {
-                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red.copy(alpha = 0.7f))
+                IconButton(onClick = onDeleteClick, modifier = Modifier.size(32.dp)) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red.copy(alpha = 0.7f), modifier = Modifier.size(18.dp))
                 }
             }
         }
@@ -1171,19 +1192,19 @@ fun SongItem(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f)
         )
     ) {
         Row(
             modifier = Modifier
-                .padding(12.dp)
+                .padding(8.dp)
                 .fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Card(
-                modifier = Modifier.size(40.dp),
+                modifier = Modifier.size(36.dp),
                 shape = MaterialTheme.shapes.small
             ) {
                 Box(
@@ -1195,7 +1216,7 @@ fun SongItem(
                     Icon(
                         Icons.Default.MusicNote,
                         contentDescription = null,
-                        modifier = Modifier.size(24.dp),
+                        modifier = Modifier.size(20.dp),
                         tint = MaterialTheme.colorScheme.primary
                     )
                     AsyncImage(
@@ -1206,11 +1227,12 @@ fun SongItem(
                     )
                 }
             }
-            Spacer(modifier = Modifier.width(16.dp))
+            Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = song.title,
                     fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     color = MaterialTheme.colorScheme.onSurface
@@ -1218,16 +1240,18 @@ fun SongItem(
                 Text(
                     text = "${song.artist} • ${song.album}",
                     style = MaterialTheme.typography.bodySmall,
+                    fontSize = 11.sp,
                     color = MaterialTheme.colorScheme.secondary,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
-            IconButton(onClick = onFavoriteToggle) {
+            IconButton(onClick = onFavoriteToggle, modifier = Modifier.size(32.dp)) {
                 Icon(
                     imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                     contentDescription = "Toggle Favorite",
-                    tint = if (isFavorite) Color.Red.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                    tint = if (isFavorite) Color.Red.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                    modifier = Modifier.size(18.dp)
                 )
             }
         }
