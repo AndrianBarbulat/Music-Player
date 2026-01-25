@@ -264,6 +264,39 @@ fun MainScreen(
         prefs.edit().putStringSet("favorite_ids", newFavorites).apply()
     }
 
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        hasPermission = isGranted
+        if (isGranted) {
+            isLoading = true
+            scope.launch {
+                songs = withContext(Dispatchers.IO) { fetchSongs(context) }
+                prefs.edit().putBoolean("songs_loaded", true).apply()
+                isLoading = false
+            }
+        }
+    }
+
+    val onFindSongs = {
+        if (hasPermission) {
+            isLoading = true
+            scope.launch {
+                songs = withContext(Dispatchers.IO) { fetchSongs(context) }
+                prefs.edit().putBoolean("songs_loaded", true).apply()
+                isLoading = false
+            }
+        } else {
+            val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                Manifest.permission.READ_MEDIA_AUDIO
+            } else {
+                Manifest.permission.READ_EXTERNAL_STORAGE
+            }
+            launcher.launch(permission)
+        }
+        Unit
+    }
+
     var selectedTabIndex by remember { mutableStateOf(0) }
     val tabs = listOf("Songs", "Favorites", "Album", "Playlists", "Artist", "Folder")
 
@@ -296,20 +329,6 @@ fun MainScreen(
             isLoading = true
             songs = withContext(Dispatchers.IO) { fetchSongs(context) }
             isLoading = false
-        }
-    }
-
-    val launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        hasPermission = isGranted
-        if (isGranted) {
-            isLoading = true
-            scope.launch {
-                songs = withContext(Dispatchers.IO) { fetchSongs(context) }
-                prefs.edit().putBoolean("songs_loaded", true).apply()
-                isLoading = false
-            }
         }
     }
 
@@ -366,36 +385,6 @@ fun MainScreen(
                 ) {
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    Button(
-                        onClick = {
-                            if (hasPermission) {
-                                isLoading = true
-                                scope.launch {
-                                    songs = withContext(Dispatchers.IO) { fetchSongs(context) }
-                                    prefs.edit().putBoolean("songs_loaded", true).apply()
-                                    isLoading = false
-                                }
-                            } else {
-                                val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                    Manifest.permission.READ_MEDIA_AUDIO
-                                } else {
-                                    Manifest.permission.READ_EXTERNAL_STORAGE
-                                }
-                                launcher.launch(permission)
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
-                        )
-                    ) {
-                        Icon(Icons.Default.Search, contentDescription = null)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Find All Songs")
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
                     ScrollableTabRow(
                         selectedTabIndex = selectedTabIndex,
                         edgePadding = 0.dp,
@@ -429,19 +418,15 @@ fun MainScreen(
                         when (selectedTabIndex) {
                             0 -> { // Songs tab
                                 Column {
-                                    MinimalShuffleToggle(isShuffleEnabled, onShuffleToggle)
+                                    if (songs.isNotEmpty()) {
+                                        MinimalShuffleToggle(isShuffleEnabled, onShuffleToggle)
+                                    }
                                     if (isLoading) {
                                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                             CircularProgressIndicator(color = MaterialTheme.colorScheme.onBackground)
                                         }
                                     } else if (songs.isEmpty()) {
-                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                            Text(
-                                                "No songs found. Click the button above to search.",
-                                                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
-                                                textAlign = TextAlign.Center
-                                            )
-                                        }
+                                        FindSongsCTA(isLoading, onFindSongs)
                                     } else {
                                         LazyColumn(
                                             modifier = Modifier.fillMaxSize(),
@@ -462,9 +447,11 @@ fun MainScreen(
                             }
                             1 -> { // Favorites tab
                                 Column {
-                                    MinimalShuffleToggle(isShuffleEnabled, onShuffleToggle)
                                     val favoriteSongs = remember(songs, favoriteIds) {
                                         songs.filter { favoriteIds.contains(it.id.toString()) }
+                                    }
+                                    if (favoriteSongs.isNotEmpty()) {
+                                        MinimalShuffleToggle(isShuffleEnabled, onShuffleToggle)
                                     }
                                     if (favoriteSongs.isEmpty()) {
                                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -507,7 +494,8 @@ fun MainScreen(
                                     isShuffleEnabled = isShuffleEnabled,
                                     onShuffleToggle = onShuffleToggle,
                                     onToggleFavorite = toggleFavorite,
-                                    onSongSelected = onSongSelected
+                                    onSongSelected = onSongSelected,
+                                    onFindSongs = onFindSongs
                                 )
                             }
                             3 -> { // Playlists tab
@@ -545,7 +533,8 @@ fun MainScreen(
                                     isShuffleEnabled = isShuffleEnabled,
                                     onShuffleToggle = onShuffleToggle,
                                     onToggleFavorite = toggleFavorite,
-                                    onSongSelected = onSongSelected
+                                    onSongSelected = onSongSelected,
+                                    onFindSongs = onFindSongs
                                 )
                             }
                             5 -> { // Folder tab
@@ -563,11 +552,52 @@ fun MainScreen(
                                     isShuffleEnabled = isShuffleEnabled,
                                     onShuffleToggle = onShuffleToggle,
                                     onToggleFavorite = toggleFavorite,
-                                    onSongSelected = onSongSelected
+                                    onSongSelected = onSongSelected,
+                                    onFindSongs = onFindSongs
                                 )
                             }
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun FindSongsCTA(
+    isLoading: Boolean,
+    onFindSongs: () -> Unit
+) {
+    Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                "Your library is empty",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Button(
+                onClick = onFindSongs,
+                enabled = !isLoading,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                )
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        strokeWidth = 2.dp
+                    )
+                } else {
+                    Icon(Icons.Default.Search, contentDescription = null)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Find All Songs")
                 }
             }
         }
@@ -611,19 +641,20 @@ fun GroupedTab(
     isShuffleEnabled: Boolean,
     onShuffleToggle: () -> Unit,
     onToggleFavorite: (Long) -> Unit,
-    onSongSelected: (Song, List<Song>) -> Unit
+    onSongSelected: (Song, List<Song>) -> Unit,
+    onFindSongs: () -> Unit
 ) {
-    if (isLoading) {
-        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(color = MaterialTheme.colorScheme.onBackground)
-        }
-    } else if (selectedItem == null) {
+    if (selectedItem == null) {
         Column {
-            MinimalShuffleToggle(isShuffleEnabled, onShuffleToggle)
-            if (items.isEmpty()) {
+            if (items.isNotEmpty()) {
+                MinimalShuffleToggle(isShuffleEnabled, onShuffleToggle)
+            }
+            if (isLoading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Text("No $title found.", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.onBackground)
                 }
+            } else if (items.isEmpty()) {
+                FindSongsCTA(isLoading, onFindSongs)
             } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
@@ -738,13 +769,15 @@ fun PlaylistsTab(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Create Playlist")
                 }
-                IconButton(onClick = onShuffleToggle, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp).size(32.dp)) {
-                    Icon(
-                        imageVector = Icons.Default.Shuffle,
-                        contentDescription = "Shuffle",
-                        tint = if (isShuffleEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
-                        modifier = Modifier.size(20.dp)
-                    )
+                if (playlists.isNotEmpty()) {
+                    IconButton(onClick = onShuffleToggle, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp).size(32.dp)) {
+                        Icon(
+                            imageVector = Icons.Default.Shuffle,
+                            contentDescription = "Shuffle",
+                            tint = if (isShuffleEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
 
