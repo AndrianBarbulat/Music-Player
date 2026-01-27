@@ -58,7 +58,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-import kotlin.random.Random
 
 data class Song(
     val id: Long,
@@ -76,10 +75,6 @@ data class Playlist(
     val songIds: List<Long>
 )
 
-enum class RepeatMode {
-    NONE, ONE, ALL
-}
-
 class MainActivity : ComponentActivity() {
     private var player: ExoPlayer? = null
     private var currentSong by mutableStateOf<Song?>(null)
@@ -87,8 +82,9 @@ class MainActivity : ComponentActivity() {
     private var originalPlaylist by mutableStateOf<List<Song>>(emptyList())
     private var activePlaybackQueue by mutableStateOf<List<Song>>(emptyList())
     private var isShuffleEnabled by mutableStateOf(false)
-    private var repeatMode by mutableStateOf(RepeatMode.NONE)
     private var playbackPosition by mutableLongStateOf(0L)
+    private var shuffleOrder by mutableStateOf<List<Int>>(emptyList())
+    private var shufflePosition by mutableIntStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
@@ -96,10 +92,9 @@ class MainActivity : ComponentActivity() {
 
         val prefs = getSharedPreferences("MusicPlayerDeckPrefs", Context.MODE_PRIVATE)
         isShuffleEnabled = prefs.getBoolean("shuffle_enabled", false)
-        repeatMode = RepeatMode.valueOf(prefs.getString("repeat_mode", RepeatMode.NONE.name) ?: RepeatMode.NONE.name)
 
         player = ExoPlayer.Builder(this).build().apply {
-            shuffleModeEnabled = false // We handle shuffle logic manually
+            shuffleModeEnabled = false
             addListener(object : Player.Listener {
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                     this@MainActivity.currentSong = activePlaybackQueue.find { it.id.toString() == mediaItem?.mediaId }
@@ -107,12 +102,6 @@ class MainActivity : ComponentActivity() {
 
                 override fun onIsPlayingChanged(playing: Boolean) {
                     this@MainActivity.isPlaying = playing
-                }
-
-                override fun onPlaybackStateChanged(playbackState: Int) {
-                    if (playbackState == Player.STATE_ENDED) {
-                        handleSongEnded()
-                    }
                 }
             })
         }
@@ -133,8 +122,9 @@ class MainActivity : ComponentActivity() {
                     currentSong = currentSong,
                     isPlaying = isPlaying,
                     isShuffleEnabled = isShuffleEnabled,
-                    repeatMode = repeatMode,
                     playbackPosition = playbackPosition,
+                    shufflePosition = shufflePosition,
+                    queueSize = activePlaybackQueue.size,
                     onSongSelected = { song, playlist ->
                         playSong(song, playlist)
                     },
@@ -142,76 +132,24 @@ class MainActivity : ComponentActivity() {
                         toggleShuffleMode()
                         prefs.edit().putBoolean("shuffle_enabled", isShuffleEnabled).apply()
                     },
-                    onRepeatToggle = {
-                        cycleRepeatMode()
-                        prefs.edit().putString("repeat_mode", repeatMode.name).apply()
-                    },
+                    onReshuffle = { reshuffleQueue() },
                     onPlayPause = {
                         if (isPlaying) player?.pause() else player?.play()
                     },
-                    onNext = { playNext() },
-                    onPrevious = { playPrevious() }
+                    onNext = {
+                        if (isShuffleEnabled) {
+                            shufflePosition = (shufflePosition + 1) % activePlaybackQueue.size
+                        }
+                        player?.seekToNext()
+                    },
+                    onPrevious = {
+                        if (isShuffleEnabled) {
+                            shufflePosition = (shufflePosition - 1 + activePlaybackQueue.size) % activePlaybackQueue.size
+                        }
+                        player?.seekToPrevious()
+                    }
                 )
             }
-        }
-    }
-
-    private fun handleSongEnded() {
-        when (repeatMode) {
-            RepeatMode.ONE -> {
-                player?.seekTo(0)
-                player?.prepare()
-                player?.play()
-            }
-            RepeatMode.ALL -> {
-                playNext()
-            }
-            RepeatMode.NONE -> {
-                val currentIndex = player?.currentMediaItemIndex ?: -1
-                if (currentIndex < (activePlaybackQueue.size - 1)) {
-                    playNext()
-                } else {
-                    // Stop at the end of the playlist
-                    player?.pause()
-                    player?.seekTo(0, 0)
-                }
-            }
-        }
-    }
-
-    private fun playNext() {
-        val currentIndex = player?.currentMediaItemIndex ?: -1
-        if (currentIndex != -1) {
-            if (currentIndex < activePlaybackQueue.size - 1) {
-                player?.seekToNextMediaItem()
-                player?.play()
-            } else if (repeatMode == RepeatMode.ALL) {
-                player?.seekTo(0, 0)
-                player?.play()
-            }
-        }
-    }
-
-    private fun playPrevious() {
-        val currentIndex = player?.currentMediaItemIndex ?: -1
-        if (currentIndex != -1) {
-            if (player?.currentPosition ?: 0 > 3000) {
-                player?.seekTo(0)
-            } else if (currentIndex > 0) {
-                player?.seekToPreviousMediaItem()
-                player?.play()
-            } else if (repeatMode == RepeatMode.ALL) {
-                player?.seekTo(activePlaybackQueue.size - 1, 0)
-                player?.play()
-            }
-        }
-    }
-
-    private fun cycleRepeatMode() {
-        repeatMode = when (repeatMode) {
-            RepeatMode.NONE -> RepeatMode.ALL
-            RepeatMode.ALL -> RepeatMode.ONE
-            RepeatMode.ONE -> RepeatMode.NONE
         }
     }
 
@@ -243,32 +181,64 @@ class MainActivity : ComponentActivity() {
         val anchorSong = currentSong
 
         isShuffleEnabled = !isShuffleEnabled
-        activePlaybackQueue = generatePlaybackQueue(originalPlaylist, anchorSong)
+
+        if (isShuffleEnabled) {
+            val anchorIndex = anchorSong?.let { originalPlaylist.indexOf(it) } ?: 0
+            shuffleOrder = listOf(anchorIndex) + (0 until originalPlaylist.size)
+                .filter { it != anchorIndex }
+                .shuffled()
+            shufflePosition = 0
+            activePlaybackQueue = shuffleOrder.map { originalPlaylist[it] }
+        } else {
+            activePlaybackQueue = originalPlaylist
+        }
 
         player?.setMediaItems(buildMediaItems(activePlaybackQueue))
-
-        val anchorIndex = anchorSong?.let { song ->
-            activePlaybackQueue.indexOfFirst { it.id == song.id }
-        } ?: 0
-
-        val safeIndex = if (anchorIndex >= 0) anchorIndex else 0
-        player?.seekTo(safeIndex, currentPositionMs)
+        val newIndex = activePlaybackQueue.indexOfFirst { it.id == anchorSong?.id }
+        player?.seekTo(if (newIndex >= 0) newIndex else 0, currentPositionMs)
         player?.prepare()
 
-        if (wasPlaying) {
-            player?.play()
-        }
+        if (wasPlaying) player?.play()
     }
 
     private fun generatePlaybackQueue(playlist: List<Song>, anchorSong: Song?): List<Song> {
         if (!isShuffleEnabled) return playlist
         if (playlist.size <= 1) return playlist
 
-        val anchorId = anchorSong?.id ?: return playlist.shuffled(Random(System.currentTimeMillis()))
-        val remainingSongs = playlist.filterNot { it.id == anchorId }
-            .shuffled(Random(System.currentTimeMillis()))
+        val anchorIndex = anchorSong?.let { playlist.indexOf(it) } ?: -1
 
-        return listOfNotNull(anchorSong) + remainingSongs
+        shuffleOrder = if (anchorIndex >= 0) {
+            listOf(anchorIndex) + (0 until playlist.size)
+                .filter { it != anchorIndex }
+                .shuffled()
+        } else {
+            (0 until playlist.size).shuffled()
+        }
+
+        shufflePosition = 0
+        return shuffleOrder.map { playlist[it] }
+    }
+
+    private fun reshuffleQueue() {
+        if (!isShuffleEnabled || originalPlaylist.isEmpty()) return
+
+        val wasPlaying = isPlaying
+        val currentPositionMs = player?.currentPosition ?: 0L
+
+        val playedIndices = shuffleOrder.take(shufflePosition + 1)
+        val remainingIndices = shuffleOrder.drop(shufflePosition + 1)
+
+        if (remainingIndices.isNotEmpty()) {
+            val newRemaining = remainingIndices.shuffled()
+            shuffleOrder = playedIndices + newRemaining
+            activePlaybackQueue = shuffleOrder.map { originalPlaylist[it] }
+
+            player?.setMediaItems(buildMediaItems(activePlaybackQueue))
+            player?.seekTo(shufflePosition, currentPositionMs)
+            player?.prepare()
+
+            if (wasPlaying) player?.play()
+        }
     }
 
     private fun buildMediaItems(queue: List<Song>): List<MediaItem> {
@@ -295,15 +265,57 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
+fun EnhancedShuffleToggle(
+    isShuffleEnabled: Boolean,
+    onShuffleToggle: () -> Unit,
+    onReshuffle: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 8.dp),
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        if (isShuffleEnabled) {
+            IconButton(
+                onClick = onReshuffle,
+                modifier = Modifier.size(32.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "Reshuffle",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Spacer(modifier = Modifier.width(4.dp))
+        }
+        IconButton(
+            onClick = onShuffleToggle,
+            modifier = Modifier.size(32.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Default.Shuffle,
+                contentDescription = "Shuffle",
+                tint = if (isShuffleEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
+                modifier = Modifier.size(20.dp)
+            )
+        }
+    }
+}
+
+@Composable
 fun MainScreen(
     currentSong: Song?,
     isPlaying: Boolean,
     isShuffleEnabled: Boolean,
-    repeatMode: RepeatMode,
     playbackPosition: Long,
+    shufflePosition: Int,
+    queueSize: Int,
     onSongSelected: (Song, List<Song>) -> Unit,
     onShuffleToggle: () -> Unit,
-    onRepeatToggle: () -> Unit,
+    onReshuffle: () -> Unit,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit
@@ -376,7 +388,7 @@ fun MainScreen(
     }
 
     var selectedTabIndex by remember { mutableStateOf(0) }
-    val tabs = listOf("Songs", "Playlist", "Folder", "Favourite", "Album", "Artist")
+    val tabs = listOf("Songs", "Favorites", "Album", "Playlists", "Artist", "Folder")
 
     var selectedFolder by remember { mutableStateOf<String?>(null) }
     var selectedAlbum by remember { mutableStateOf<String?>(null) }
@@ -393,7 +405,6 @@ fun MainScreen(
         songs.groupBy { it.artist }.mapValues { it.value.size }.toList().sortedBy { it.first }
     }
 
-    // Reset sub-navigation when switching tabs
     LaunchedEffect(selectedTabIndex) {
         selectedFolder = null
         selectedAlbum = null
@@ -401,7 +412,6 @@ fun MainScreen(
         selectedPlaylist = null
     }
 
-    // Auto-load songs if previously loaded and permission is granted
     LaunchedEffect(hasPermission) {
         if (hasPermission && prefs.getBoolean("songs_loaded", false)) {
             isLoading = true
@@ -440,10 +450,11 @@ fun MainScreen(
                     MiniPlayer(
                         song = currentSong,
                         isPlaying = isPlaying,
-                        repeatMode = repeatMode,
                         playbackPosition = playbackPosition,
+                        isShuffleEnabled = isShuffleEnabled,
+                        shufflePosition = shufflePosition,
+                        queueSize = queueSize,
                         onPlayPause = onPlayPause,
-                        onRepeatToggle = onRepeatToggle,
                         onNext = onNext,
                         onPrevious = onPrevious
                     )
@@ -499,7 +510,11 @@ fun MainScreen(
                             0 -> { // Songs tab
                                 Column {
                                     if (songs.isNotEmpty()) {
-                                        MinimalShuffleToggle(isShuffleEnabled, onShuffleToggle)
+                                        EnhancedShuffleToggle(
+                                            isShuffleEnabled = isShuffleEnabled,
+                                            onShuffleToggle = onShuffleToggle,
+                                            onReshuffle = onReshuffle
+                                        )
                                     }
                                     if (isLoading) {
                                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -525,52 +540,17 @@ fun MainScreen(
                                     }
                                 }
                             }
-                            1 -> { // Playlist tab
-                                PlaylistsTab(
-                                    playlists = playlists,
-                                    songs = songs,
-                                    selectedPlaylist = selectedPlaylist,
-                                    onPlaylistClick = { selectedPlaylist = it },
-                                    onBackClick = { selectedPlaylist = null },
-                                    onCreateClick = { isCreatingPlaylist = true },
-                                    favoriteIds = favoriteIds,
-                                    isShuffleEnabled = isShuffleEnabled,
-                                    onShuffleToggle = onShuffleToggle,
-                                    onToggleFavorite = toggleFavorite,
-                                    onSongSelected = onSongSelected,
-                                    onDeletePlaylist = { playlist ->
-                                        playlists = playlists.filter { it.name != playlist.name }
-                                        savePlaylists(prefs, playlists)
-                                        prefs.edit().remove("playlist_ids_${playlist.name}").apply()
-                                    }
-                                )
-                            }
-                            2 -> { // Folder tab
-                                GroupedTab(
-                                    title = "Folders",
-                                    items = folders,
-                                    isLoading = isLoading,
-                                    icon = Icons.Default.Folder,
-                                    selectedItem = selectedFolder,
-                                    onItemClick = { selectedFolder = it },
-                                    onBackClick = { selectedFolder = null },
-                                    songs = songs,
-                                    filterPredicate = { it.folder == selectedFolder },
-                                    favoriteIds = favoriteIds,
-                                    isShuffleEnabled = isShuffleEnabled,
-                                    onShuffleToggle = onShuffleToggle,
-                                    onToggleFavorite = toggleFavorite,
-                                    onSongSelected = onSongSelected,
-                                    onFindSongs = onFindSongs
-                                )
-                            }
-                            3 -> { // Favourite tab
+                            1 -> { // Favorites tab
                                 Column {
                                     val favoriteSongs = remember(songs, favoriteIds) {
                                         songs.filter { favoriteIds.contains(it.id.toString()) }
                                     }
                                     if (favoriteSongs.isNotEmpty()) {
-                                        MinimalShuffleToggle(isShuffleEnabled, onShuffleToggle)
+                                        EnhancedShuffleToggle(
+                                            isShuffleEnabled = isShuffleEnabled,
+                                            onShuffleToggle = onShuffleToggle,
+                                            onReshuffle = onReshuffle
+                                        )
                                     }
                                     if (favoriteSongs.isEmpty()) {
                                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -598,7 +578,7 @@ fun MainScreen(
                                     }
                                 }
                             }
-                            4 -> { // Album tab
+                            2 -> { // Album tab
                                 GroupedTab(
                                     title = "Albums",
                                     items = albums,
@@ -612,12 +592,34 @@ fun MainScreen(
                                     favoriteIds = favoriteIds,
                                     isShuffleEnabled = isShuffleEnabled,
                                     onShuffleToggle = onShuffleToggle,
+                                    onReshuffle = onReshuffle,
                                     onToggleFavorite = toggleFavorite,
                                     onSongSelected = onSongSelected,
                                     onFindSongs = onFindSongs
                                 )
                             }
-                            5 -> { // Artist tab
+                            3 -> { // Playlists tab
+                                PlaylistsTab(
+                                    playlists = playlists,
+                                    songs = songs,
+                                    selectedPlaylist = selectedPlaylist,
+                                    onPlaylistClick = { selectedPlaylist = it },
+                                    onBackClick = { selectedPlaylist = null },
+                                    onCreateClick = { isCreatingPlaylist = true },
+                                    favoriteIds = favoriteIds,
+                                    isShuffleEnabled = isShuffleEnabled,
+                                    onShuffleToggle = onShuffleToggle,
+                                    onReshuffle = onReshuffle,
+                                    onToggleFavorite = toggleFavorite,
+                                    onSongSelected = onSongSelected,
+                                    onDeletePlaylist = { playlist ->
+                                        playlists = playlists.filter { it.name != playlist.name }
+                                        savePlaylists(prefs, playlists)
+                                        prefs.edit().remove("playlist_ids_${playlist.name}").apply()
+                                    }
+                                )
+                            }
+                            4 -> { // Artist tab
                                 GroupedTab(
                                     title = "Artists",
                                     items = artists,
@@ -631,6 +633,27 @@ fun MainScreen(
                                     favoriteIds = favoriteIds,
                                     isShuffleEnabled = isShuffleEnabled,
                                     onShuffleToggle = onShuffleToggle,
+                                    onReshuffle = onReshuffle,
+                                    onToggleFavorite = toggleFavorite,
+                                    onSongSelected = onSongSelected,
+                                    onFindSongs = onFindSongs
+                                )
+                            }
+                            5 -> { // Folder tab
+                                GroupedTab(
+                                    title = "Folders",
+                                    items = folders,
+                                    isLoading = isLoading,
+                                    icon = Icons.Default.Folder,
+                                    selectedItem = selectedFolder,
+                                    onItemClick = { selectedFolder = it },
+                                    onBackClick = { selectedFolder = null },
+                                    songs = songs,
+                                    filterPredicate = { it.folder == selectedFolder },
+                                    favoriteIds = favoriteIds,
+                                    isShuffleEnabled = isShuffleEnabled,
+                                    onShuffleToggle = onShuffleToggle,
+                                    onReshuffle = onReshuffle,
                                     onToggleFavorite = toggleFavorite,
                                     onSongSelected = onSongSelected,
                                     onFindSongs = onFindSongs
@@ -685,28 +708,6 @@ fun FindSongsCTA(
 }
 
 @Composable
-fun MinimalShuffleToggle(isShuffleEnabled: Boolean, onShuffleToggle: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(bottom = 8.dp),
-        horizontalArrangement = Arrangement.End
-    ) {
-        IconButton(
-            onClick = onShuffleToggle,
-            modifier = Modifier.size(32.dp)
-        ) {
-            Icon(
-                imageVector = Icons.Default.Shuffle,
-                contentDescription = "Shuffle",
-                tint = if (isShuffleEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
-                modifier = Modifier.size(20.dp)
-            )
-        }
-    }
-}
-
-@Composable
 fun GroupedTab(
     title: String,
     items: List<Pair<String, Int>>,
@@ -720,6 +721,7 @@ fun GroupedTab(
     favoriteIds: Set<String>,
     isShuffleEnabled: Boolean,
     onShuffleToggle: () -> Unit,
+    onReshuffle: () -> Unit,
     onToggleFavorite: (Long) -> Unit,
     onSongSelected: (Song, List<Song>) -> Unit,
     onFindSongs: () -> Unit
@@ -727,7 +729,11 @@ fun GroupedTab(
     if (selectedItem == null) {
         Column {
             if (items.isNotEmpty()) {
-                MinimalShuffleToggle(isShuffleEnabled, onShuffleToggle)
+                EnhancedShuffleToggle(
+                    isShuffleEnabled = isShuffleEnabled,
+                    onShuffleToggle = onShuffleToggle,
+                    onReshuffle = onReshuffle
+                )
             }
             if (isLoading) {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -770,6 +776,16 @@ fun GroupedTab(
                         color = MaterialTheme.colorScheme.onBackground
                     )
                 }
+                if (isShuffleEnabled) {
+                    IconButton(onClick = onReshuffle, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            Icons.Default.Refresh,
+                            contentDescription = "Reshuffle",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
                 IconButton(onClick = onShuffleToggle, modifier = Modifier.size(32.dp)) {
                     Icon(
                         imageVector = Icons.Default.Shuffle,
@@ -808,12 +824,12 @@ fun PlaylistsTab(
     favoriteIds: Set<String>,
     isShuffleEnabled: Boolean,
     onShuffleToggle: () -> Unit,
+    onReshuffle: () -> Unit,
     onToggleFavorite: (Long) -> Unit,
     onSongSelected: (Song, List<Song>) -> Unit,
     onDeletePlaylist: (Playlist) -> Unit
 ) {
     var playlistToDelete by remember { mutableStateOf<Playlist?>(null) }
-
     if (playlistToDelete != null) {
         AlertDialog(
             onDismissRequest = { playlistToDelete = null },
@@ -850,7 +866,17 @@ fun PlaylistsTab(
                     Text("Create Playlist")
                 }
                 if (playlists.isNotEmpty()) {
-                    IconButton(onClick = onShuffleToggle, modifier = Modifier.padding(start = 8.dp, bottom = 8.dp).size(32.dp)) {
+                    if (isShuffleEnabled) {
+                        IconButton(onClick = onReshuffle, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp).size(32.dp)) {
+                            Icon(
+                                Icons.Default.Refresh,
+                                contentDescription = "Reshuffle",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                    }
+                    IconButton(onClick = onShuffleToggle, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp).size(32.dp)) {
                         Icon(
                             imageVector = Icons.Default.Shuffle,
                             contentDescription = "Shuffle",
@@ -907,6 +933,16 @@ fun PlaylistsTab(
                         overflow = TextOverflow.Ellipsis,
                         color = MaterialTheme.colorScheme.onBackground
                     )
+                }
+                if (isShuffleEnabled) {
+                    IconButton(onClick = onReshuffle, modifier = Modifier.size(32.dp)) {
+                        Icon(
+                            Icons.Default.Refresh,
+                            contentDescription = "Reshuffle",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
                 IconButton(onClick = onShuffleToggle, modifier = Modifier.size(32.dp)) {
                     Icon(
@@ -1164,10 +1200,11 @@ fun GroupItem(
 fun MiniPlayer(
     song: Song,
     isPlaying: Boolean,
-    repeatMode: RepeatMode,
     playbackPosition: Long,
+    isShuffleEnabled: Boolean,
+    shufflePosition: Int,
+    queueSize: Int,
     onPlayPause: () -> Unit,
-    onRepeatToggle: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit
 ) {
@@ -1183,8 +1220,16 @@ fun MiniPlayer(
                 .padding(horizontal = 12.dp, vertical = 8.dp)
                 .fillMaxWidth()
         ) {
-            // Marquee Title at the top, spanning above both controls and art
-            key(song.id) { // key(song.id) ensures marquee resets when song changes
+            if (isShuffleEnabled && queueSize > 0) {
+                Text(
+                    text = "Shuffle: ${shufflePosition + 1}/$queueSize",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(bottom = 4.dp)
+                )
+            }
+
+            key(song.id) {
                 Text(
                     text = song.title,
                     fontWeight = FontWeight.Bold,
@@ -1207,7 +1252,6 @@ fun MiniPlayer(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // Controls on the left
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -1225,22 +1269,10 @@ fun MiniPlayer(
                     IconButton(onClick = onNext) {
                         Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    IconButton(onClick = onRepeatToggle) {
-                        Icon(
-                            imageVector = when (repeatMode) {
-                                RepeatMode.NONE -> Icons.Default.Repeat
-                                RepeatMode.ONE -> Icons.Default.RepeatOne
-                                RepeatMode.ALL -> Icons.Default.RepeatOn
-                            },
-                            contentDescription = "Repeat Mode",
-                            tint = if (repeatMode == RepeatMode.NONE) MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f) else MaterialTheme.colorScheme.primary
-                        )
-                    }
                 }
 
                 Spacer(modifier = Modifier.width(12.dp))
 
-                // Artist and Time in the middle/right
                 Row(
                     modifier = Modifier.weight(1f),
                     verticalAlignment = Alignment.CenterVertically,
@@ -1269,7 +1301,6 @@ fun MiniPlayer(
 
                     Spacer(modifier = Modifier.width(12.dp))
 
-                    // Thumbnail on the far right
                     Card(
                         modifier = Modifier.size(48.dp),
                         shape = MaterialTheme.shapes.small
@@ -1455,11 +1486,12 @@ fun MainScreenPreview() {
             currentSong = null,
             isPlaying = false,
             isShuffleEnabled = false,
-            repeatMode = RepeatMode.NONE,
             playbackPosition = 0L,
+            shufflePosition = 0,
+            queueSize = 0,
             onSongSelected = { _, _ -> },
             onShuffleToggle = {},
-            onRepeatToggle = {},
+            onReshuffle = {},
             onPlayPause = {},
             onNext = {},
             onPrevious = {}
