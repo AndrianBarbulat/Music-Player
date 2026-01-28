@@ -1,10 +1,12 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@file:OptIn(ExperimentalMaterial3Api::class)
 
 package com.example.musicplayerdeck
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.ContentUris
 import android.content.Context
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
@@ -12,6 +14,7 @@ import android.os.Bundle
 import android.provider.MediaStore
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.ManagedActivityResultLauncher
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -49,6 +52,8 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import coil.compose.AsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import com.example.musicplayerdeck.ui.theme.MusicPlayerDeckTheme
 import com.example.musicplayerdeck.ui.theme.MintGradient
 import com.example.musicplayerdeck.ui.theme.DarkMintGradient
@@ -58,6 +63,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.util.Locale
+import androidx.core.content.edit
+import androidx.core.net.toUri
 
 data class Song(
     val id: Long,
@@ -75,6 +83,12 @@ data class Playlist(
     val songIds: List<Long>
 )
 
+data class MiniPlayerState(
+    val position: Long,
+    val isPlaying: Boolean,
+    val song: Song?
+)
+
 class MainActivity : ComponentActivity() {
     private var player: ExoPlayer? = null
     private var currentSong by mutableStateOf<Song?>(null)
@@ -82,7 +96,6 @@ class MainActivity : ComponentActivity() {
     private var originalPlaylist by mutableStateOf<List<Song>>(emptyList())
     private var activePlaybackQueue by mutableStateOf<List<Song>>(emptyList())
     private var isShuffleEnabled by mutableStateOf(false)
-    private var playbackPosition by mutableLongStateOf(0L)
     private var shuffleOrder by mutableStateOf<List<Int>>(emptyList())
     private var shufflePosition by mutableIntStateOf(0)
 
@@ -90,7 +103,7 @@ class MainActivity : ComponentActivity() {
         installSplashScreen()
         super.onCreate(savedInstanceState)
 
-        val prefs = getSharedPreferences("MusicPlayerDeckPrefs", Context.MODE_PRIVATE)
+        val prefs = getSharedPreferences("MusicPlayerDeckPrefs", MODE_PRIVATE)
         isShuffleEnabled = prefs.getBoolean("shuffle_enabled", false)
 
         player = ExoPlayer.Builder(this).build().apply {
@@ -109,12 +122,33 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             MusicPlayerDeckTheme {
+                val miniPlayerState = remember {
+                    mutableStateOf(
+                        MiniPlayerState(
+                            position = 0L,
+                            isPlaying = isPlaying,
+                            song = currentSong
+                        )
+                    )
+                }
+
                 LaunchedEffect(isPlaying) {
-                    if (isPlaying) {
-                        while (isActive) {
-                            playbackPosition = player?.currentPosition ?: 0L
-                            delay(1000)
-                        }
+                    while (isPlaying) {
+                        miniPlayerState.value = miniPlayerState.value.copy(
+                            position = player?.currentPosition ?: 0L,
+                            isPlaying = true,
+                            song = currentSong
+                        )
+                        delay(500)
+                    }
+                }
+
+                LaunchedEffect(currentSong) {
+                    currentSong?.let {
+                        miniPlayerState.value = miniPlayerState.value.copy(
+                            song = it,
+                            position = 0L
+                        )
                     }
                 }
 
@@ -122,7 +156,7 @@ class MainActivity : ComponentActivity() {
                     currentSong = currentSong,
                     isPlaying = isPlaying,
                     isShuffleEnabled = isShuffleEnabled,
-                    playbackPosition = playbackPosition,
+                    playbackPosition = miniPlayerState.value.position,
                     shufflePosition = shufflePosition,
                     queueSize = activePlaybackQueue.size,
                     onSongSelected = { song, playlist ->
@@ -130,7 +164,7 @@ class MainActivity : ComponentActivity() {
                     },
                     onShuffleToggle = {
                         toggleShuffleMode()
-                        prefs.edit().putBoolean("shuffle_enabled", isShuffleEnabled).apply()
+                        prefs.edit { putBoolean("shuffle_enabled", isShuffleEnabled) }
                     },
                     onReshuffle = { reshuffleQueue() },
                     onPlayPause = {
@@ -147,6 +181,10 @@ class MainActivity : ComponentActivity() {
                             shufflePosition = (shufflePosition - 1 + activePlaybackQueue.size) % activePlaybackQueue.size
                         }
                         player?.seekToPrevious()
+                    },
+                    onSeek = { newPosition ->
+                        player?.seekTo(newPosition)
+                        miniPlayerState.value = miniPlayerState.value.copy(position = newPosition)
                     }
                 )
             }
@@ -305,6 +343,7 @@ fun EnhancedShuffleToggle(
     }
 }
 
+@SuppressLint("UseKtx")
 @Composable
 fun MainScreen(
     currentSong: Song?,
@@ -318,7 +357,8 @@ fun MainScreen(
     onReshuffle: () -> Unit,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
-    onPrevious: () -> Unit
+    onPrevious: () -> Unit,
+    onSeek: (Long) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -339,10 +379,11 @@ fun MainScreen(
         mutableStateOf(prefs.getStringSet("favorite_ids", emptySet()) ?: emptySet())
     }
 
-    var playlists by remember { mutableStateOf(loadPlaylists(prefs)) }
+    // FIXED: Use mutableStateListOf for playlists
+    val playlists = remember { mutableStateListOf<Playlist>().apply { addAll(loadPlaylists(prefs)) } }
     var isCreatingPlaylist by remember { mutableStateOf(false) }
 
-    val toggleFavorite = { songId: Long ->
+    val toggleFavorite: (Long) -> Unit = { songId: Long ->
         val newFavorites = favoriteIds.toMutableSet()
         val idStr = songId.toString()
         if (newFavorites.contains(idStr)) {
@@ -351,30 +392,27 @@ fun MainScreen(
             newFavorites.add(idStr)
         }
         favoriteIds = newFavorites
-        prefs.edit().putStringSet("favorite_ids", newFavorites).apply()
+        prefs.edit { putStringSet("favorite_ids", newFavorites) }
     }
 
     val launcher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
+        contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         hasPermission = isGranted
-        if (isGranted) {
-            isLoading = true
-            scope.launch {
-                songs = withContext(Dispatchers.IO) { fetchSongs(context) }
-                prefs.edit().putBoolean("songs_loaded", true).apply()
-                isLoading = false
-            }
-        }
     }
 
-    val onFindSongs = {
+    val onFindSongs: () -> Unit = {
         if (hasPermission) {
             isLoading = true
             scope.launch {
-                songs = withContext(Dispatchers.IO) { fetchSongs(context) }
-                prefs.edit().putBoolean("songs_loaded", true).apply()
-                isLoading = false
+                try {
+                    songs = withContext(Dispatchers.IO) {
+                        fetchSongs(context)
+                    }
+                    prefs.edit {putBoolean("songs_loaded", true)}
+                } finally {
+                    isLoading = false
+                }
             }
         } else {
             val permission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -384,10 +422,9 @@ fun MainScreen(
             }
             launcher.launch(permission)
         }
-        Unit
     }
 
-    var selectedTabIndex by remember { mutableStateOf(0) }
+    var selectedTabIndex by remember { mutableIntStateOf(0) }
     val tabs = listOf("Songs", "Favorites", "Album", "Playlists", "Artist", "Folder")
 
     var selectedFolder by remember { mutableStateOf<String?>(null) }
@@ -395,14 +432,37 @@ fun MainScreen(
     var selectedArtist by remember { mutableStateOf<String?>(null) }
     var selectedPlaylist by remember { mutableStateOf<Playlist?>(null) }
 
-    val folders = remember(songs) {
-        songs.groupBy { it.folder }.mapValues { it.value.size }.toList().sortedBy { it.first }
+    val folders by remember {
+        derivedStateOf {
+            if (selectedTabIndex == 5) {
+                songs.groupBy { it.folder }
+                    .mapValues { it.value.size }
+                    .toList()
+                    .sortedBy { it.first }
+            } else emptyList()
+        }
     }
-    val albums = remember(songs) {
-        songs.groupBy { it.album }.mapValues { it.value.size }.toList().sortedBy { it.first }
+
+    val albums by remember {
+        derivedStateOf {
+            if (selectedTabIndex == 2) {
+                songs.groupBy { it.album }
+                    .mapValues { it.value.size }
+                    .toList()
+                    .sortedBy { it.first }
+            } else emptyList()
+        }
     }
-    val artists = remember(songs) {
-        songs.groupBy { it.artist }.mapValues { it.value.size }.toList().sortedBy { it.first }
+
+    val artists by remember {
+        derivedStateOf {
+            if (selectedTabIndex == 4) {
+                songs.groupBy { it.artist }
+                    .mapValues { it.value.size }
+                    .toList()
+                    .sortedBy { it.first }
+            } else emptyList()
+        }
     }
 
     LaunchedEffect(selectedTabIndex) {
@@ -429,8 +489,8 @@ fun MainScreen(
             onDismiss = { isCreatingPlaylist = false },
             onSave = { name, selectedIds ->
                 val newPlaylist = Playlist(name, selectedIds.toList())
-                playlists = playlists + newPlaylist
-                savePlaylists(prefs, playlists)
+                playlists.add(newPlaylist)
+                savePlaylists(prefs, playlists.toList())
                 isCreatingPlaylist = false
             }
         )
@@ -448,7 +508,7 @@ fun MainScreen(
             bottomBar = {
                 if (currentSong != null) {
                     MiniPlayer(
-                        song = currentSong,
+                        song = currentSong!!,
                         isPlaying = isPlaying,
                         playbackPosition = playbackPosition,
                         isShuffleEnabled = isShuffleEnabled,
@@ -456,7 +516,8 @@ fun MainScreen(
                         queueSize = queueSize,
                         onPlayPause = onPlayPause,
                         onNext = onNext,
-                        onPrevious = onPrevious
+                        onPrevious = onPrevious,
+                        onSeek = onSeek
                     )
                 }
             },
@@ -507,7 +568,7 @@ fun MainScreen(
 
                     Box(modifier = Modifier.weight(1f)) {
                         when (selectedTabIndex) {
-                            0 -> { // Songs tab
+                            0 -> {
                                 Column {
                                     if (songs.isNotEmpty()) {
                                         EnhancedShuffleToggle(
@@ -528,7 +589,10 @@ fun MainScreen(
                                             verticalArrangement = Arrangement.spacedBy(4.dp),
                                             contentPadding = PaddingValues(bottom = 16.dp)
                                         ) {
-                                            items(songs) { song ->
+                                            items(
+                                                items = songs,
+                                                key = { it.id }
+                                            ) { song ->
                                                 SongItem(
                                                     song = song,
                                                     isFavorite = favoriteIds.contains(song.id.toString()),
@@ -540,7 +604,7 @@ fun MainScreen(
                                     }
                                 }
                             }
-                            1 -> { // Favorites tab
+                            1 -> {
                                 Column {
                                     val favoriteSongs = remember(songs, favoriteIds) {
                                         songs.filter { favoriteIds.contains(it.id.toString()) }
@@ -566,7 +630,10 @@ fun MainScreen(
                                             verticalArrangement = Arrangement.spacedBy(4.dp),
                                             contentPadding = PaddingValues(bottom = 16.dp)
                                         ) {
-                                            items(favoriteSongs) { song ->
+                                            items(
+                                                items = favoriteSongs,
+                                                key = { it.id }
+                                            ) { song ->
                                                 SongItem(
                                                     song = song,
                                                     isFavorite = true,
@@ -578,9 +645,8 @@ fun MainScreen(
                                     }
                                 }
                             }
-                            2 -> { // Album tab
+                            2 -> {
                                 GroupedTab(
-                                    title = "Albums",
                                     items = albums,
                                     isLoading = isLoading,
                                     icon = Icons.Default.Album,
@@ -598,9 +664,9 @@ fun MainScreen(
                                     onFindSongs = onFindSongs
                                 )
                             }
-                            3 -> { // Playlists tab
+                            3 -> {
                                 PlaylistsTab(
-                                    playlists = playlists,
+                                    playlists = playlists.toList(), // FIXED: Convert to List for composable
                                     songs = songs,
                                     selectedPlaylist = selectedPlaylist,
                                     onPlaylistClick = { selectedPlaylist = it },
@@ -613,15 +679,15 @@ fun MainScreen(
                                     onToggleFavorite = toggleFavorite,
                                     onSongSelected = onSongSelected,
                                     onDeletePlaylist = { playlist ->
-                                        playlists = playlists.filter { it.name != playlist.name }
-                                        savePlaylists(prefs, playlists)
+                                        // FIXED: Use removeAll instead of filter + assignment
+                                        playlists.removeAll { it.name == playlist.name }
+                                        savePlaylists(prefs, playlists.toList())
                                         prefs.edit().remove("playlist_ids_${playlist.name}").apply()
                                     }
                                 )
                             }
-                            4 -> { // Artist tab
+                            4 -> {
                                 GroupedTab(
-                                    title = "Artists",
                                     items = artists,
                                     isLoading = isLoading,
                                     icon = Icons.Default.Person,
@@ -639,9 +705,8 @@ fun MainScreen(
                                     onFindSongs = onFindSongs
                                 )
                             }
-                            5 -> { // Folder tab
+                            5 -> {
                                 GroupedTab(
-                                    title = "Folders",
                                     items = folders,
                                     isLoading = isLoading,
                                     icon = Icons.Default.Folder,
@@ -709,7 +774,6 @@ fun FindSongsCTA(
 
 @Composable
 fun GroupedTab(
-    title: String,
     items: List<Pair<String, Int>>,
     isLoading: Boolean,
     icon: ImageVector,
@@ -800,7 +864,10 @@ fun GroupedTab(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
-                items(groupSongs) { song ->
+                items(
+                    items = groupSongs,
+                    key = { it.id }
+                ) { song ->
                     SongItem(
                         song = song,
                         isFavorite = favoriteIds.contains(song.id.toString()),
@@ -958,7 +1025,10 @@ fun PlaylistsTab(
                 verticalArrangement = Arrangement.spacedBy(4.dp),
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
-                items(playlistSongs) { song ->
+                items(
+                    items = playlistSongs,
+                    key = { it.id }
+                ) { song ->
                     SongItem(
                         song = song,
                         isFavorite = favoriteIds.contains(song.id.toString()),
@@ -980,10 +1050,23 @@ fun CreatePlaylistScreen(
 ) {
     var playlistName by remember { mutableStateOf("") }
     var searchQuery by remember { mutableStateOf("") }
+    var debouncedQuery by remember { mutableStateOf("") }
     var selectedSongs by remember { mutableStateOf(setOf<Long>()) }
 
-    val filteredSongs = remember(allSongs, searchQuery) {
-        allSongs.filter { it.title.contains(searchQuery, ignoreCase = true) || it.artist.contains(searchQuery, ignoreCase = true) }
+    LaunchedEffect(searchQuery) {
+        delay(300)
+        debouncedQuery = searchQuery
+    }
+
+    val filteredSongs = remember(allSongs, debouncedQuery) {
+        if (debouncedQuery.isBlank()) {
+            allSongs
+        } else {
+            allSongs.filter {
+                it.title.contains(debouncedQuery, ignoreCase = true) ||
+                        it.artist.contains(debouncedQuery, ignoreCase = true)
+            }
+        }
     }
 
     val gradient = if (isSystemInDarkTheme()) DarkMintGradient else MintGradient
@@ -1123,16 +1206,16 @@ fun CreatePlaylistScreen(
     }
 }
 
-fun savePlaylists(prefs: android.content.SharedPreferences, playlists: List<Playlist>) {
+fun savePlaylists(prefs: SharedPreferences, playlists: List<Playlist>) {
     val names = playlists.map { it.name }.toSet()
     prefs.edit().putStringSet("playlist_names", names).apply()
     for (playlist in playlists) {
         val ids = playlist.songIds.map { it.toString() }.toSet()
-        prefs.edit().putStringSet("playlist_ids_${playlist.name}", ids).apply()
+        prefs.edit {putStringSet("playlist_ids_${playlist.name}", ids)}
     }
 }
 
-fun loadPlaylists(prefs: android.content.SharedPreferences): List<Playlist> {
+fun loadPlaylists(prefs: SharedPreferences): List<Playlist> {
     val names = prefs.getStringSet("playlist_names", emptySet()) ?: emptySet()
     return names.map { name ->
         val idsStr = prefs.getStringSet("playlist_ids_$name", emptySet()) ?: emptySet()
@@ -1206,8 +1289,12 @@ fun MiniPlayer(
     queueSize: Int,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
-    onPrevious: () -> Unit
+    onPrevious: () -> Unit,
+    onSeek: (Long) -> Unit
 ) {
+    var isDragging by remember { mutableStateOf(false) }
+    var dragPosition by remember { mutableFloatStateOf(0f) }
+
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -1247,6 +1334,45 @@ fun MiniPlayer(
             }
 
             Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = formatTime(if (isDragging) dragPosition.toLong() else playbackPosition),
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                )
+                Text(
+                    text = formatTime(song.duration.toLong()),
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                )
+            }
+
+            Slider(
+                value = if (isDragging) dragPosition else playbackPosition.toFloat(),
+                onValueChange = { newPosition ->
+                    isDragging = true
+                    dragPosition = newPosition
+                },
+                onValueChangeFinished = {
+                    onSeek(dragPosition.toLong())
+                    isDragging = false
+                },
+                valueRange = 0f..song.duration.toFloat(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp),
+                colors = SliderDefaults.colors(
+                    thumbColor = MaterialTheme.colorScheme.primary,
+                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                    inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                )
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1290,13 +1416,6 @@ fun MiniPlayer(
                             overflow = TextOverflow.Ellipsis,
                             textAlign = TextAlign.End
                         )
-                        Text(
-                            text = "${formatTime(playbackPosition)} / ${formatTime(song.duration.toLong())}",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontWeight = FontWeight.Medium,
-                            textAlign = TextAlign.End
-                        )
                     }
 
                     Spacer(modifier = Modifier.width(12.dp))
@@ -1318,7 +1437,13 @@ fun MiniPlayer(
                                 tint = MaterialTheme.colorScheme.primary
                             )
                             AsyncImage(
-                                model = song.albumArtUri,
+                                model = ImageRequest.Builder(LocalContext.current)
+                                    .data(song.albumArtUri)
+                                    .crossfade(true)
+                                    .size(96)
+                                    .memoryCachePolicy(CachePolicy.ENABLED)
+                                    .diskCachePolicy(CachePolicy.ENABLED)
+                                    .build(),
                                 contentDescription = null,
                                 modifier = Modifier.fillMaxSize(),
                                 contentScale = ContentScale.Crop
@@ -1335,7 +1460,7 @@ fun formatTime(milliseconds: Long): String {
     val totalSeconds = milliseconds / 1000
     val minutes = totalSeconds / 60
     val seconds = totalSeconds % 60
-    return String.format("%02d:%02d", minutes, seconds)
+    return String.format(Locale.getDefault(), "%02d:%02d", minutes, seconds)
 }
 
 @Composable
@@ -1377,7 +1502,13 @@ fun SongItem(
                         tint = MaterialTheme.colorScheme.primary
                     )
                     AsyncImage(
-                        model = song.albumArtUri,
+                        model = ImageRequest.Builder(LocalContext.current)
+                            .data(song.albumArtUri)
+                            .crossfade(true)
+                            .size(72)
+                            .memoryCachePolicy(CachePolicy.ENABLED)
+                            .diskCachePolicy(CachePolicy.ENABLED)
+                            .build(),
                         contentDescription = null,
                         modifier = Modifier.fillMaxSize(),
                         contentScale = ContentScale.Crop
@@ -1417,64 +1548,84 @@ fun SongItem(
 
 fun fetchSongs(context: Context): List<Song> {
     val songs = mutableListOf<Song>()
-    val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-        MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
-    } else {
-        MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
-    }
 
-    val projection = arrayOf(
-        MediaStore.Audio.Media._ID,
-        MediaStore.Audio.Media.TITLE,
-        MediaStore.Audio.Media.ARTIST,
-        MediaStore.Audio.Media.ALBUM,
-        MediaStore.Audio.Media.DURATION,
-        MediaStore.Audio.Media.ALBUM_ID,
-        MediaStore.Audio.Media.DATA
-    )
-
-    val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
-
-    context.contentResolver.query(
-        collection,
-        projection,
-        selection,
-        null,
-        "${MediaStore.Audio.Media.TITLE} ASC"
-    )?.use { cursor ->
-        val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-        val titleColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-        val artistColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
-        val albumColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
-        val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
-        val albumIdColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
-        val dataColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
-
-        while (cursor.moveToNext()) {
-            val id = cursor.getLong(idColumn)
-            val title = cursor.getString(titleColumn) ?: "Unknown"
-            val artist = cursor.getString(artistColumn) ?: "Unknown"
-            val album = cursor.getString(albumColumn) ?: "Unknown"
-            val duration = cursor.getInt(durationColumn)
-            val albumId = cursor.getLong(albumIdColumn)
-            val path = cursor.getString(dataColumn)
-            val folder = if (path != null) File(path).parentFile?.name ?: "Unknown" else "Unknown"
-
-            val contentUri: Uri = ContentUris.withAppendedId(
-                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                id
-            )
-
-            val albumArtUri = if (albumId > 0) {
-                ContentUris.withAppendedId(
-                    Uri.parse("content://media/external/audio/albumart"),
-                    albumId
-                )
-            } else null
-
-            songs.add(Song(id, title, artist, album, duration, contentUri, albumArtUri, folder))
+    try {
+        val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+        } else {
+            MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         }
+
+        val projection = arrayOf(
+            MediaStore.Audio.Media._ID,
+            MediaStore.Audio.Media.TITLE,
+            MediaStore.Audio.Media.ARTIST,
+            MediaStore.Audio.Media.ALBUM,
+            MediaStore.Audio.Media.DURATION,
+            MediaStore.Audio.Media.ALBUM_ID,
+            MediaStore.Audio.Media.DATA
+        )
+
+        val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
+
+        context.contentResolver.query(
+            collection,
+            projection,
+            selection,
+            null,
+            null
+        )?.use { cursor ->
+            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+            val titleColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+            val artistColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+            val albumColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
+            val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
+            val albumIdColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
+            val dataColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
+
+            while (cursor.moveToNext()) {
+                try {
+                    val id = cursor.getLong(idColumn)
+                    val title = cursor.getString(titleColumn) ?: "Unknown"
+                    val artist = cursor.getString(artistColumn) ?: "Unknown"
+                    val album = cursor.getString(albumColumn) ?: "Unknown"
+                    val duration = cursor.getInt(durationColumn)
+                    val albumId = cursor.getLong(albumIdColumn)
+                    val path = cursor.getString(dataColumn) ?: ""
+
+                    val folder = try {
+                        if (path.isNotEmpty()) File(path).parentFile?.name ?: "Unknown" else "Unknown"
+                    } catch (_: Exception) {
+                        "Unknown"
+                    }
+
+                    val contentUri: Uri = ContentUris.withAppendedId(
+                        MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
+                        id
+                    )
+
+                    val albumArtUri = try {
+                        if (albumId > 0) {
+                            ContentUris.withAppendedId(
+                                "content://media/external/audio/albumart".toUri(),
+                                albumId
+                            )
+                        } else null
+                    } catch (_: Exception) {
+                        null
+                    }
+
+                    songs.add(Song(id, title, artist, album, duration, contentUri, albumArtUri, folder))
+                } catch (_: Exception) {
+                    // Skip problematic song
+                }
+            }
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+        return emptyList()
     }
+
     return songs
 }
 
@@ -1494,7 +1645,8 @@ fun MainScreenPreview() {
             onReshuffle = {},
             onPlayPause = {},
             onNext = {},
-            onPrevious = {}
+            onPrevious = {},
+            onSeek = {}
         )
     }
 }
