@@ -20,6 +20,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
@@ -104,7 +105,7 @@ data class MiniPlayerState(
 class MusicPlayerViewModel : ViewModel() {
     private var controller: MediaController? = null
 
-    // THE FIX: Command Queue for asynchronous controller connection
+    // Command Queue for asynchronous controller connection
     private val pendingActions = mutableListOf<(MediaController) -> Unit>()
 
     var currentSong by mutableStateOf<Song?>(null)
@@ -173,12 +174,10 @@ class MusicPlayerViewModel : ViewModel() {
             }
         })
 
-        // Execute any actions the user clicked while the service was starting!
         pendingActions.forEach { action -> action(mediaController) }
         pendingActions.clear()
     }
 
-    // THE FIX: Safe wrapper that guarantees commands aren't lost
     private fun executeCommand(action: (MediaController) -> Unit) {
         val ctrl = controller
         if (ctrl != null) {
@@ -193,7 +192,6 @@ class MusicPlayerViewModel : ViewModel() {
 
         val playlistChanged = originalPlaylist != playlist || activePlaybackQueue.isEmpty()
 
-        // Update state instantly for UI
         if (playlistChanged) {
             originalPlaylist = playlist
             activePlaybackQueue = generatePlaybackQueue(playlist, song)
@@ -201,7 +199,6 @@ class MusicPlayerViewModel : ViewModel() {
 
         val index = activePlaybackQueue.indexOfFirst { it.id == song.id }
 
-        // Queue player commands safely
         executeCommand { ctrl ->
             if (playlistChanged) {
                 ctrl.setMediaItems(buildMediaItems(activePlaybackQueue))
@@ -373,7 +370,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    // Connect to the Background Service
     override fun onStart() {
         super.onStart()
         val sessionToken = SessionToken(this, ComponentName(this, PlaybackService::class.java))
@@ -397,14 +393,13 @@ class PlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
 
-        // AudioAttributes handles pausing for phone calls automatically
         val audioAttributes = AudioAttributes.Builder()
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
             .setUsage(C.USAGE_MEDIA)
             .build()
 
         val player = ExoPlayer.Builder(this)
-            .setAudioAttributes(audioAttributes, true) // TRUE = Request Audio Focus
+            .setAudioAttributes(audioAttributes, true)
             .build()
 
         mediaSession = MediaSession.Builder(this, player).build()
@@ -427,37 +422,55 @@ fun EnhancedShuffleToggle(
     onShuffleToggle: () -> Unit,
     onReshuffle: () -> Unit
 ) {
+    // UPDATED: Centered, labeled buttons for better visibility and access
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(bottom = 8.dp),
-        horizontalArrangement = Arrangement.End,
+            .padding(vertical = 12.dp, horizontal = 16.dp),
+        horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (isShuffleEnabled) {
-            IconButton(
-                onClick = onReshuffle,
-                modifier = Modifier.size(32.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Refresh,
-                    contentDescription = "Reshuffle",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-            Spacer(modifier = Modifier.width(4.dp))
-        }
-        IconButton(
+        Button(
             onClick = onShuffleToggle,
-            modifier = Modifier.size(32.dp)
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (isShuffleEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = if (isShuffleEnabled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+            ),
+            elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)
         ) {
             Icon(
                 imageVector = Icons.Default.Shuffle,
                 contentDescription = "Shuffle",
-                tint = if (isShuffleEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f),
                 modifier = Modifier.size(20.dp)
             )
+            Spacer(modifier = Modifier.width(8.dp))
+            Text(
+                text = if (isShuffleEnabled) "Shuffle On" else "Shuffle Off",
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp
+            )
+        }
+
+        if (isShuffleEnabled) {
+            Spacer(modifier = Modifier.width(16.dp))
+            OutlinedButton(
+                onClick = onReshuffle,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Refresh,
+                    contentDescription = "Reshuffle",
+                    modifier = Modifier.size(20.dp),
+                    tint = MaterialTheme.colorScheme.primary
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Reshuffle",
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
         }
     }
 }
@@ -486,7 +499,6 @@ fun MainScreen(
     var songs by remember { mutableStateOf<ImmutableList<Song>>(persistentListOf()) }
     var isLoading by remember { mutableStateOf(false) }
 
-    // Added POST_NOTIFICATIONS for Android 13+ Background Playback
     var hasPermission by remember {
         mutableStateOf(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -513,7 +525,6 @@ fun MainScreen(
         }
     }
 
-    // Handle multiple permissions for modern Android versions
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -596,7 +607,7 @@ fun MainScreen(
             modifier = Modifier.fillMaxSize(),
             topBar = {
                 CenterAlignedTopAppBar(
-                    title = { Text("Music Player Deck", fontWeight = FontWeight.Bold) },
+                    title = { Text(text = "Music Player Deck", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground) },
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent)
                 )
             },
@@ -635,7 +646,8 @@ fun MainScreen(
                             Tab(
                                 selected = selectedTabIndex == index,
                                 onClick = { selectedTabIndex = index },
-                                text = { Text(title, color = if (selectedTabIndex == index) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f), fontWeight = if (selectedTabIndex == index) FontWeight.Bold else FontWeight.Normal) }
+                                // UPDATED FONT COLOR: Stronger contrast
+                                text = { Text(text = title, color = if (selectedTabIndex == index) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = if (selectedTabIndex == index) FontWeight.Bold else FontWeight.Medium) }
                             )
                         }
                     }
@@ -647,7 +659,7 @@ fun MainScreen(
                             0 -> {
                                 Column {
                                     if (songs.isNotEmpty()) EnhancedShuffleToggle(isShuffleEnabled, onShuffleToggle, onReshuffle)
-                                    if (isLoading) Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = MaterialTheme.colorScheme.onBackground) }
+                                    if (isLoading) Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = MaterialTheme.colorScheme.primary) }
                                     else if (songs.isEmpty()) FindSongsCTA(isLoading, onFindSongs)
                                     else {
                                         LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
@@ -670,7 +682,9 @@ fun MainScreen(
                                     if (favoriteSongs.isNotEmpty()) EnhancedShuffleToggle(isShuffleEnabled, onShuffleToggle, onReshuffle)
 
                                     if (favoriteSongs.isEmpty()) {
-                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("No favorites yet.", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f), textAlign = TextAlign.Center) }
+                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                            Text(text = "No favorites yet.", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, fontWeight = FontWeight.Medium)
+                                        }
                                     } else {
                                         LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
                                             items(items = favoriteSongs, key = { it.id }) { song ->
@@ -776,14 +790,15 @@ fun MainScreen(
 fun FindSongsCTA(isLoading: Boolean, onFindSongs: () -> Unit) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("Your library is empty", fontSize = 18.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f))
+            // UPDATED FONT COLOR: Stronger visibility
+            Text(text = "Your library is empty", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground)
             Spacer(modifier = Modifier.height(16.dp))
-            Button(onClick = onFindSongs, enabled = !isLoading, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f))) {
+            Button(onClick = onFindSongs, enabled = !isLoading, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) {
                 if (isLoading) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
                 else {
-                    Icon(Icons.Default.Search, contentDescription = null)
+                    Icon(imageVector = Icons.Default.Search, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Find All Songs")
+                    Text(text = "Find All Songs", fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -811,7 +826,7 @@ fun GroupedTab(
     if (selectedItem == null) {
         Column {
             if (items.isNotEmpty()) EnhancedShuffleToggle(isShuffleEnabled, onShuffleToggle, onReshuffle)
-            if (isLoading) Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = MaterialTheme.colorScheme.onBackground) }
+            if (isLoading) Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = MaterialTheme.colorScheme.primary) }
             else if (items.isEmpty()) FindSongsCTA(isLoading, onFindSongs)
             else {
                 LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
@@ -827,14 +842,13 @@ fun GroupedTab(
         Column(modifier = Modifier.fillMaxSize()) {
             Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Row(modifier = Modifier.weight(1f).clickable { onBackClick() }.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onBackground)
+                    Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onBackground)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(selectedItem, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onBackground)
+                    Text(text = selectedItem, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onBackground)
                 }
-                if (isShuffleEnabled) {
-                    IconButton(onClick = onReshuffle, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Refresh, contentDescription = "Reshuffle", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp)) }
-                }
-                IconButton(onClick = onShuffleToggle, modifier = Modifier.size(32.dp)) { Icon(imageVector = Icons.Default.Shuffle, contentDescription = "Shuffle", tint = if (isShuffleEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f), modifier = Modifier.size(20.dp)) }
+            }
+            if (groupSongs.isNotEmpty()) {
+                EnhancedShuffleToggle(isShuffleEnabled, onShuffleToggle, onReshuffle)
             }
             LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
                 items(items = groupSongs, key = { it.id }) { song ->
@@ -871,28 +885,24 @@ fun PlaylistsTab(
     if (playlistToDelete != null) {
         AlertDialog(
             onDismissRequest = { playlistToDelete = null },
-            title = { Text("Delete Playlist") },
-            text = { Text("Are you sure you want to delete this playlist?") },
-            confirmButton = { TextButton(onClick = { playlistToDelete?.let { onDeletePlaylist(it) }; playlistToDelete = null }) { Text("Delete", color = Color.Red) } },
-            dismissButton = { TextButton(onClick = { playlistToDelete = null }) { Text("Cancel") } }
+            title = { Text(text = "Delete Playlist") },
+            text = { Text(text = "Are you sure you want to delete this playlist?") },
+            confirmButton = { TextButton(onClick = { playlistToDelete?.let { onDeletePlaylist(it) }; playlistToDelete = null }) { Text(text = "Delete", color = Color.Red, fontWeight = FontWeight.Bold) } },
+            dismissButton = { TextButton(onClick = { playlistToDelete = null }) { Text(text = "Cancel", fontWeight = FontWeight.Bold) } }
         )
     }
 
     if (selectedPlaylist == null) {
         Column(modifier = Modifier.fillMaxSize()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Button(onClick = onCreateClick, modifier = Modifier.weight(1f).padding(bottom = 8.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f))) {
-                    Icon(Icons.Default.Add, contentDescription = null)
+                Button(onClick = onCreateClick, modifier = Modifier.weight(1f).padding(bottom = 8.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) {
+                    Icon(imageVector = Icons.Default.Add, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Create Playlist")
-                }
-                if (playlists.isNotEmpty()) {
-                    if (isShuffleEnabled) IconButton(onClick = onReshuffle, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp).size(32.dp)) { Icon(Icons.Default.Refresh, contentDescription = "Reshuffle", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp)) }
-                    IconButton(onClick = onShuffleToggle, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp).size(32.dp)) { Icon(imageVector = Icons.Default.Shuffle, contentDescription = "Shuffle", tint = if (isShuffleEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f), modifier = Modifier.size(20.dp)) }
+                    Text(text = "Create Playlist", fontWeight = FontWeight.Bold)
                 }
             }
 
-            if (playlists.isEmpty()) Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) { Text("No playlists yet.", color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)) }
+            if (playlists.isEmpty()) Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) { Text(text = "No playlists yet.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium) }
             else {
                 LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
                     items(playlists) { playlist ->
@@ -907,12 +917,13 @@ fun PlaylistsTab(
         Column(modifier = Modifier.fillMaxSize()) {
             Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                 Row(modifier = Modifier.weight(1f).clickable { onBackClick() }.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onBackground)
+                    Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onBackground)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(selectedPlaylist.name, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onBackground)
+                    Text(text = selectedPlaylist.name, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onBackground)
                 }
-                if (isShuffleEnabled) IconButton(onClick = onReshuffle, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Refresh, contentDescription = "Reshuffle", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp)) }
-                IconButton(onClick = onShuffleToggle, modifier = Modifier.size(32.dp)) { Icon(imageVector = Icons.Default.Shuffle, contentDescription = "Shuffle", tint = if (isShuffleEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.4f), modifier = Modifier.size(20.dp)) }
+            }
+            if (playlistSongs.isNotEmpty()) {
+                EnhancedShuffleToggle(isShuffleEnabled, onShuffleToggle, onReshuffle)
             }
             LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
                 items(items = playlistSongs, key = { it.id }) { song ->
@@ -959,40 +970,40 @@ fun CreatePlaylistScreen(
         Box(modifier = Modifier.fillMaxSize().background(gradient)) {
             Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onDismiss) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onBackground) }
-                    Text("Create Playlist", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onBackground)
+                    IconButton(onClick = onDismiss) { Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onBackground) }
+                    Text(text = "Create Playlist", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
                 }
 
-                OutlinedTextField(value = playlistName, onValueChange = { playlistName = it }, label = { Text("Playlist Name") }, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.3f), focusedBorderColor = MaterialTheme.colorScheme.primary))
-                OutlinedTextField(value = searchQuery, onValueChange = { searchQuery = it }, label = { Text("Search Songs") }, leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.3f), focusedBorderColor = MaterialTheme.colorScheme.primary))
+                OutlinedTextField(value = playlistName, onValueChange = { playlistName = it }, label = { Text(text = "Playlist Name") }, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = MaterialTheme.colorScheme.primary))
+                OutlinedTextField(value = searchQuery, onValueChange = { searchQuery = it }, label = { Text(text = "Search Songs") }, leadingIcon = { Icon(imageVector = Icons.Default.Search, contentDescription = null) }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = MaterialTheme.colorScheme.primary))
 
-                Text("Selection Options", fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.onBackground)
+                Text(text = "Selection Options", fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.onBackground)
                 Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     var showFolderDialog by remember { mutableStateOf(false) }
-                    Button(onClick = { showFolderDialog = true }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f))) { Text("Select Folder") }
+                    Button(onClick = { showFolderDialog = true }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { Text(text = "Select Folder", fontWeight = FontWeight.SemiBold) }
 
                     if (showFolderDialog) {
                         AlertDialog(
                             onDismissRequest = { showFolderDialog = false },
-                            title = { Text("Select Folder") },
+                            title = { Text(text = "Select Folder", fontWeight = FontWeight.Bold) },
                             text = {
                                 LazyColumn {
                                     items(folders) { (folderName, count) ->
                                         Row(modifier = Modifier.fillMaxWidth().clickable { val folderSongs = allSongs.filter { it.folder == folderName }; selectedSongs = selectedSongs + folderSongs.map { it.id }.toSet(); showFolderDialog = false }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(Icons.Default.Folder, contentDescription = null)
+                                            Icon(imageVector = Icons.Default.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                             Spacer(modifier = Modifier.width(12.dp))
-                                            Text("$folderName ($count songs)")
+                                            Text(text = "$folderName ($count songs)", color = MaterialTheme.colorScheme.onSurface)
                                         }
                                     }
                                 }
                             },
-                            confirmButton = { TextButton(onClick = { showFolderDialog = false }) { Text("Cancel") } }
+                            confirmButton = { TextButton(onClick = { showFolderDialog = false }) { Text(text = "Cancel", fontWeight = FontWeight.Bold) } }
                         )
                     }
-                    Button(onClick = { selectedSongs = emptySet() }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary.copy(alpha = 0.8f))) { Text("Clear All") }
+                    Button(onClick = { selectedSongs = emptySet() }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) { Text(text = "Clear All", fontWeight = FontWeight.SemiBold) }
                 }
 
-                Text("Songs (${selectedSongs.size} selected)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+                Text(text = "Songs (${selectedSongs.size} selected)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
 
                 LazyColumn(modifier = Modifier.weight(1f)) {
                     items(filteredSongs) { song ->
@@ -1000,14 +1011,14 @@ fun CreatePlaylistScreen(
                             Checkbox(checked = selectedSongs.contains(song.id), onCheckedChange = { checked -> selectedSongs = if (checked) selectedSongs + song.id else selectedSongs - song.id })
                             Spacer(modifier = Modifier.width(8.dp))
                             Column {
-                                Text(song.title, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onBackground)
-                                Text(song.artist, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f))
+                                Text(text = song.title, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground)
+                                Text(text = song.artist, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
                 }
 
-                Button(onClick = { if (playlistName.isNotBlank()) onSave(playlistName, selectedSongs) }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), enabled = playlistName.isNotBlank() && selectedSongs.isNotEmpty(), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { Text("Save Playlist") }
+                Button(onClick = { if (playlistName.isNotBlank()) onSave(playlistName, selectedSongs) }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), enabled = playlistName.isNotBlank() && selectedSongs.isNotEmpty(), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { Text(text = "Save Playlist", fontWeight = FontWeight.Bold) }
             }
         }
     }
@@ -1042,18 +1053,19 @@ fun GroupItem(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f))
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
-        Row(modifier = Modifier.padding(8.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
-            Spacer(modifier = Modifier.width(12.dp))
+        Row(modifier = Modifier.padding(12.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
+            Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = name, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface)
-                Text(text = "$count songs", style = MaterialTheme.typography.bodySmall, fontSize = 11.sp, color = MaterialTheme.colorScheme.secondary)
+                // UPDATED FONT COLOR: Better contrast
+                Text(text = name, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface)
+                Text(text = "$count songs", style = MaterialTheme.typography.bodySmall, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (onDeleteClick != null) {
-                IconButton(onClick = onDeleteClick, modifier = Modifier.size(32.dp)) { Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red.copy(alpha = 0.7f), modifier = Modifier.size(18.dp)) }
+                IconButton(onClick = onDeleteClick, modifier = Modifier.size(32.dp)) { Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red, modifier = Modifier.size(20.dp)) }
             }
         }
     }
@@ -1076,56 +1088,58 @@ fun MiniPlayer(
     var isDragging by remember { mutableStateOf(false) }
     var dragPosition by remember { mutableFloatStateOf(0f) }
 
-    // SAFETY FIX: Mathematical clamp to absolutely prevent Compose Slider from throwing an IllegalArgumentException
-    val safeDuration = song.duration.toFloat().coerceAtLeast(1000f) // Guarantee at least a 1-second range
+    val safeDuration = song.duration.toFloat().coerceAtLeast(1000f)
     val rawPosition = if (isDragging) dragPosition else playbackPosition.toFloat()
-    val safePosition = rawPosition.coerceIn(0f, safeDuration) // Clamp so it can NEVER exceed duration
+    val safePosition = rawPosition.coerceIn(0f, safeDuration)
 
-    Surface(modifier = Modifier.fillMaxWidth().wrapContentHeight(), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.95f), tonalElevation = 8.dp) {
-        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp).fillMaxWidth()) {
+    Surface(modifier = Modifier.fillMaxWidth().wrapContentHeight(), color = MaterialTheme.colorScheme.surfaceVariant, tonalElevation = 8.dp) {
+        // UPDATED PADDING: Tighter space
+        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth()) {
             if (isShuffleEnabled && queueSize > 0) {
-                Text(text = "Shuffle: ${shufflePosition + 1}/$queueSize", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(bottom = 4.dp))
+                Text(text = "Shuffle: ${shufflePosition + 1}/$queueSize", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
             }
 
             key(song.id) {
-                Text(text = song.title, fontWeight = FontWeight.Bold, fontSize = 16.sp, maxLines = 1, modifier = Modifier.fillMaxWidth().basicMarquee(iterations = Int.MAX_VALUE, repeatDelayMillis = 2000), textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(text = song.title, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, modifier = Modifier.fillMaxWidth().basicMarquee(iterations = Int.MAX_VALUE, repeatDelayMillis = 2000), textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(2.dp))
 
+            // UPDATED FONT COLOR: Stronger contrast
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(text = formatTime(safePosition.toLong()), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
-                Text(text = formatTime(song.duration.toLong()), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f))
+                Text(text = formatTime(safePosition.toLong()), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium)
+                Text(text = formatTime(song.duration.toLong()), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium)
             }
 
+            // COMPACT SLIDER: Thinner visual line
             Slider(
-                value = safePosition, // Using clamped position
+                value = safePosition,
                 onValueChange = { newPosition -> isDragging = true; dragPosition = newPosition },
                 onValueChangeFinished = { onSeek(dragPosition.toLong()); isDragging = false },
-                valueRange = 0f..safeDuration, // Using clamped duration
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary, inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f))
+                valueRange = 0f..safeDuration,
+                modifier = Modifier.fillMaxWidth().height(20.dp),
+                colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary, inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
             )
 
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(2.dp))
 
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    IconButton(onClick = onPrevious) { Icon(Icons.Default.SkipPrevious, contentDescription = "Previous", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
-                    IconButton(onClick = onPlayPause) { Icon(imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = if (isPlaying) "Pause" else "Play", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
-                    IconButton(onClick = onNext) { Icon(Icons.Default.SkipNext, contentDescription = "Next", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    IconButton(onClick = onPrevious) { Icon(imageVector = Icons.Default.SkipPrevious, contentDescription = "Previous", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    IconButton(onClick = onPlayPause) { Icon(imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = if (isPlaying) "Pause" else "Play", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(32.dp)) }
+                    IconButton(onClick = onNext) { Icon(imageVector = Icons.Default.SkipNext, contentDescription = "Next", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
 
                 Spacer(modifier = Modifier.width(12.dp))
 
                 Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) {
                     Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
-                        Text(text = song.artist, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End)
+                        Text(text = song.artist, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End, fontWeight = FontWeight.Medium)
                     }
                     Spacer(modifier = Modifier.width(12.dp))
-                    Card(modifier = Modifier.size(48.dp), shape = MaterialTheme.shapes.small) {
+                    Card(modifier = Modifier.size(42.dp), shape = MaterialTheme.shapes.small) {
                         Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
-                            Icon(Icons.Default.MusicNote, contentDescription = null, modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+                            Icon(imageVector = Icons.Default.MusicNote, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
                             AsyncImage(model = song.albumArtUri, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                         }
                     }
@@ -1152,23 +1166,24 @@ fun SongItem(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth().clickable { onSongClick(song, currentList) },
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f))
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
-        Row(modifier = Modifier.padding(8.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Card(modifier = Modifier.size(36.dp), shape = MaterialTheme.shapes.small) {
+        Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Card(modifier = Modifier.size(40.dp), shape = MaterialTheme.shapes.small) {
                 Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.MusicNote, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
+                    Icon(imageVector = Icons.Default.MusicNote, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
                     AsyncImage(model = song.albumArtUri, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                 }
             }
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                Text(text = song.title, fontWeight = FontWeight.Bold, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface)
-                Text(text = "${song.artist} • ${song.album}", style = MaterialTheme.typography.bodySmall, fontSize = 11.sp, color = MaterialTheme.colorScheme.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                // UPDATED FONT COLOR: Stronger contrast
+                Text(text = song.title, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface)
+                Text(text = "${song.artist} • ${song.album}", style = MaterialTheme.typography.bodySmall, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             IconButton(onClick = { onFavoriteToggle(song.id) }, modifier = Modifier.size(32.dp)) {
-                Icon(imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, contentDescription = "Toggle Favorite", tint = if (isFavorite) Color.Red.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f), modifier = Modifier.size(18.dp))
+                Icon(imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, contentDescription = "Toggle Favorite", tint = if (isFavorite) Color.Red else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
             }
         }
     }
