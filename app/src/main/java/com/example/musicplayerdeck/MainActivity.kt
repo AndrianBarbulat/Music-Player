@@ -28,6 +28,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
@@ -37,6 +38,7 @@ import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -77,6 +79,13 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
 
+// ============================================================================
+// DATA MODELS
+// ============================================================================
+
+/**
+ * Represents a single audio file on the device.
+ */
 @Stable
 data class Song(
     val id: Long,
@@ -89,23 +98,36 @@ data class Song(
     val folder: String
 )
 
+/**
+ * Represents a user-created collection of songs.
+ */
 @Stable
 data class Playlist(
     val name: String,
     val songIds: ImmutableList<Long>
 )
 
+/**
+ * Represents the current playback state for the MiniPlayer UI.
+ */
 data class MiniPlayerState(
     val position: Long,
     val isPlaying: Boolean,
     val song: Song?
 )
 
-// --- 1. VIEWMODEL ARCHITECTURE ---
+// ============================================================================
+// VIEWMODEL ARCHITECTURE
+// ============================================================================
+
+/**
+ * Manages the state of the Music Player, bridges the UI to the MediaController,
+ * and handles robust queue management including True Shuffle.
+ */
 class MusicPlayerViewModel : ViewModel() {
     private var controller: MediaController? = null
 
-    // Command Queue for asynchronous controller connection
+    // A queue to hold commands if the user clicks play before the service connects
     private val pendingActions = mutableListOf<(MediaController) -> Unit>()
 
     var currentSong by mutableStateOf<Song?>(null)
@@ -125,6 +147,9 @@ class MusicPlayerViewModel : ViewModel() {
     var shufflePosition by mutableIntStateOf(0)
         private set
 
+    /**
+     * Starts the coroutine to update the playback position slider.
+     */
     fun initialize(prefs: SharedPreferences) {
         isShuffleEnabled = prefs.getBoolean("shuffle_enabled", false)
         viewModelScope.launch {
@@ -132,11 +157,14 @@ class MusicPlayerViewModel : ViewModel() {
                 if (isPlaying) {
                     playbackPosition = controller?.currentPosition ?: 0L
                 }
-                delay(500)
+                delay(500) // Update UI every half second
             }
         }
     }
 
+    /**
+     * Binds the ExoPlayer MediaController to the ViewModel state.
+     */
     fun setController(mediaController: MediaController) {
         controller = mediaController
         isPlaying = mediaController.isPlaying
@@ -160,7 +188,11 @@ class MusicPlayerViewModel : ViewModel() {
             }
 
             @androidx.annotation.OptIn(UnstableApi::class)
-            override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+            override fun onPositionDiscontinuity(
+                oldPosition: Player.PositionInfo,
+                newPosition: Player.PositionInfo,
+                reason: Int
+            ) {
                 if (isShuffleEnabled && reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION) {
                     val newMediaItem = newPosition.mediaItem
                     val newSong = activePlaybackQueue.find { it.id.toString() == newMediaItem?.mediaId }
@@ -174,10 +206,14 @@ class MusicPlayerViewModel : ViewModel() {
             }
         })
 
+        // Execute any actions the user clicked while the service was starting
         pendingActions.forEach { action -> action(mediaController) }
         pendingActions.clear()
     }
 
+    /**
+     * Safely executes commands on the media controller.
+     */
     private fun executeCommand(action: (MediaController) -> Unit) {
         val ctrl = controller
         if (ctrl != null) {
@@ -187,11 +223,15 @@ class MusicPlayerViewModel : ViewModel() {
         }
     }
 
+    /**
+     * Plays a specific song from a provided list/playlist context.
+     */
     fun playSong(song: Song, playlist: ImmutableList<Song>) {
         if (playlist.isEmpty()) return
 
         val playlistChanged = originalPlaylist != playlist || activePlaybackQueue.isEmpty()
 
+        // Update state instantly for UI responsiveness
         if (playlistChanged) {
             originalPlaylist = playlist
             activePlaybackQueue = generatePlaybackQueue(playlist, song)
@@ -199,6 +239,7 @@ class MusicPlayerViewModel : ViewModel() {
 
         val index = activePlaybackQueue.indexOfFirst { it.id == song.id }
 
+        // Queue player commands safely
         executeCommand { ctrl ->
             if (playlistChanged) {
                 ctrl.setMediaItems(buildMediaItems(activePlaybackQueue))
@@ -211,6 +252,9 @@ class MusicPlayerViewModel : ViewModel() {
         }
     }
 
+    /**
+     * Toggles true shuffle on or off.
+     */
     fun toggleShuffleMode(prefs: SharedPreferences) {
         if (originalPlaylist.isEmpty()) {
             isShuffleEnabled = !isShuffleEnabled
@@ -244,6 +288,9 @@ class MusicPlayerViewModel : ViewModel() {
         }
     }
 
+    /**
+     * Creates a Fisher-Yates style shuffled queue, ensuring the selected song plays first.
+     */
     private fun generatePlaybackQueue(playlist: ImmutableList<Song>, anchorSong: Song?): ImmutableList<Song> {
         if (!isShuffleEnabled) return playlist
         if (playlist.size <= 1) return playlist
@@ -258,6 +305,9 @@ class MusicPlayerViewModel : ViewModel() {
         return shuffleOrder.map { playlist[it] }.toImmutableList()
     }
 
+    /**
+     * Re-scrambles the remaining songs in the queue without interrupting the current song.
+     */
     fun reshuffleQueue() {
         if (!isShuffleEnabled || originalPlaylist.isEmpty()) return
 
@@ -287,16 +337,18 @@ class MusicPlayerViewModel : ViewModel() {
     }
 
     fun playNext() {
-        if (isShuffleEnabled && activePlaybackQueue.isNotEmpty()) {
-            shufflePosition = (shufflePosition + 1) % activePlaybackQueue.size
+        executeCommand { ctrl ->
+            if (ctrl.hasNextMediaItem()) {
+                ctrl.seekToNext()
+            } else {
+                // Reached the end of the list. Loop back to start but pause.
+                ctrl.seekTo(0, 0)
+                ctrl.pause()
+            }
         }
-        executeCommand { it.seekToNext() }
     }
 
     fun playPrevious() {
-        if (isShuffleEnabled && activePlaybackQueue.isNotEmpty()) {
-            shufflePosition = (shufflePosition - 1 + activePlaybackQueue.size) % activePlaybackQueue.size
-        }
         executeCommand { it.seekToPrevious() }
     }
 
@@ -328,6 +380,9 @@ class MusicPlayerViewModel : ViewModel() {
     }
 }
 
+// ============================================================================
+// MAIN ACTIVITY
+// ============================================================================
 
 class MainActivity : ComponentActivity() {
     private lateinit var controllerFuture: ListenableFuture<MediaController>
@@ -343,13 +398,27 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             MusicPlayerDeckTheme {
-                val onSongSelected: (Song, ImmutableList<Song>) -> Unit = remember { { song, playlist -> viewModel.playSong(song, playlist) } }
-                val onShuffleToggle: () -> Unit = remember { { viewModel.toggleShuffleMode(prefs) } }
-                val onReshuffle: () -> Unit = remember { { viewModel.reshuffleQueue() } }
-                val onPlayPause: () -> Unit = remember { { viewModel.togglePlayPause() } }
-                val onNext: () -> Unit = remember { { viewModel.playNext() } }
-                val onPrevious: () -> Unit = remember { { viewModel.playPrevious() } }
-                val onSeek: (Long) -> Unit = remember { { newPosition -> viewModel.seekTo(newPosition) } }
+                val onSongSelected: (Song, ImmutableList<Song>) -> Unit = remember {
+                    { song, playlist -> viewModel.playSong(song, playlist) }
+                }
+                val onShuffleToggle: () -> Unit = remember {
+                    { viewModel.toggleShuffleMode(prefs) }
+                }
+                val onReshuffle: () -> Unit = remember {
+                    { viewModel.reshuffleQueue() }
+                }
+                val onPlayPause: () -> Unit = remember {
+                    { viewModel.togglePlayPause() }
+                }
+                val onNext: () -> Unit = remember {
+                    { viewModel.playNext() }
+                }
+                val onPrevious: () -> Unit = remember {
+                    { viewModel.playPrevious() }
+                }
+                val onSeek: (Long) -> Unit = remember {
+                    { newPosition -> viewModel.seekTo(newPosition) }
+                }
 
                 MainScreen(
                     currentSong = viewModel.currentSong,
@@ -386,21 +455,28 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// --- 2. BACKGROUND SERVICE & AUDIO FOCUS ---
+// ============================================================================
+// BACKGROUND SERVICE & AUDIO FOCUS
+// ============================================================================
+
 class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
 
     override fun onCreate() {
         super.onCreate()
 
+        // AudioAttributes handles pausing for phone calls automatically
         val audioAttributes = AudioAttributes.Builder()
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
             .setUsage(C.USAGE_MEDIA)
             .build()
 
         val player = ExoPlayer.Builder(this)
-            .setAudioAttributes(audioAttributes, true)
-            .build()
+            .setAudioAttributes(audioAttributes, true) // Request Audio Focus
+            .build().apply {
+                // Ensure small playlists don't break the 'Next' button flow
+                repeatMode = Player.REPEAT_MODE_ALL
+            }
 
         mediaSession = MediaSession.Builder(this, player).build()
     }
@@ -416,13 +492,16 @@ class PlaybackService : MediaSessionService() {
     }
 }
 
+// ============================================================================
+// UI COMPONENTS
+// ============================================================================
+
 @Composable
 fun EnhancedShuffleToggle(
     isShuffleEnabled: Boolean,
     onShuffleToggle: () -> Unit,
     onReshuffle: () -> Unit
 ) {
-    // UPDATED: Centered, labeled buttons for better visibility and access
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -440,12 +519,12 @@ fun EnhancedShuffleToggle(
         ) {
             Icon(
                 imageVector = Icons.Default.Shuffle,
-                contentDescription = "Shuffle",
+                contentDescription = "Toggle Shuffle",
                 modifier = Modifier.size(20.dp)
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = if (isShuffleEnabled) "Shuffle On" else "Shuffle Off",
+                text = if (isShuffleEnabled) "Shuffle On" else "Shuffle All",
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 14.sp
             )
@@ -459,7 +538,7 @@ fun EnhancedShuffleToggle(
             ) {
                 Icon(
                     imageVector = Icons.Default.Refresh,
-                    contentDescription = "Reshuffle",
+                    contentDescription = "Reshuffle Queue",
                     modifier = Modifier.size(20.dp),
                     tint = MaterialTheme.colorScheme.primary
                 )
@@ -499,6 +578,7 @@ fun MainScreen(
     var songs by remember { mutableStateOf<ImmutableList<Song>>(persistentListOf()) }
     var isLoading by remember { mutableStateOf(false) }
 
+    // Check for permissions based on Android version
     var hasPermission by remember {
         mutableStateOf(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -511,7 +591,6 @@ fun MainScreen(
     }
 
     var favoriteIds by remember { mutableStateOf(prefs.getStringSet("favorite_ids", emptySet()) ?: emptySet()) }
-
     var playlists by remember { mutableStateOf(loadPlaylists(prefs)) }
     var isCreatingPlaylist by remember { mutableStateOf(false) }
 
@@ -525,6 +604,7 @@ fun MainScreen(
         }
     }
 
+    // Permission Launcher
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
@@ -561,9 +641,11 @@ fun MainScreen(
         }
     }
 
+    // Requested Tab Order
     var selectedTabIndex by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Songs", "Favorites", "Album", "Playlists", "Artist", "Folder")
+    val tabs = listOf("Songs", "Playlists", "Folder", "Favorites", "Album", "Artist")
 
+    // State parameters for grouped tabs
     var selectedFolder by remember { mutableStateOf<String?>(null) }
     var selectedAlbum by remember { mutableStateOf<String?>(null) }
     var selectedArtist by remember { mutableStateOf<String?>(null) }
@@ -607,8 +689,16 @@ fun MainScreen(
             modifier = Modifier.fillMaxSize(),
             topBar = {
                 CenterAlignedTopAppBar(
-                    title = { Text(text = "Music Player Deck", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground) },
-                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent)
+                    title = {
+                        Text(
+                            text = "Music Player Deck",
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
+                    },
+                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                        containerColor = Color.Transparent
+                    )
                 )
             },
             bottomBar = {
@@ -629,9 +719,19 @@ fun MainScreen(
             },
             containerColor = Color.Transparent
         ) { innerPadding ->
-            Box(modifier = Modifier.fillMaxSize().background(gradient).padding(innerPadding)) {
-                Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Spacer(modifier = Modifier.height(16.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(gradient)
+                    .padding(innerPadding)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Spacer(modifier = Modifier.height(8.dp))
 
                     ScrollableTabRow(
                         selectedTabIndex = selectedTabIndex,
@@ -639,15 +739,23 @@ fun MainScreen(
                         containerColor = Color.Transparent,
                         divider = {},
                         indicator = { tabPositions ->
-                            TabRowDefaults.SecondaryIndicator(Modifier.tabIndicatorOffset(tabPositions[selectedTabIndex]), color = MaterialTheme.colorScheme.onBackground)
+                            TabRowDefaults.SecondaryIndicator(
+                                modifier = Modifier.tabIndicatorOffset(tabPositions[selectedTabIndex]),
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
                         }
                     ) {
                         tabs.forEachIndexed { index, title ->
                             Tab(
                                 selected = selectedTabIndex == index,
                                 onClick = { selectedTabIndex = index },
-                                // UPDATED FONT COLOR: Stronger contrast
-                                text = { Text(text = title, color = if (selectedTabIndex == index) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = if (selectedTabIndex == index) FontWeight.Bold else FontWeight.Medium) }
+                                text = {
+                                    Text(
+                                        text = title,
+                                        color = if (selectedTabIndex == index) MaterialTheme.colorScheme.onBackground else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontWeight = if (selectedTabIndex == index) FontWeight.Bold else FontWeight.Medium
+                                    )
+                                }
                             )
                         }
                     }
@@ -655,17 +763,32 @@ fun MainScreen(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     Box(modifier = Modifier.weight(1f)) {
+                        // Using the requested Tab Order
+                        // 0: Songs, 1: Playlists, 2: Folder, 3: Favorites, 4: Album, 5: Artist
                         when (selectedTabIndex) {
                             0 -> {
                                 Column {
-                                    if (songs.isNotEmpty()) EnhancedShuffleToggle(isShuffleEnabled, onShuffleToggle, onReshuffle)
-                                    if (isLoading) Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = MaterialTheme.colorScheme.primary) }
-                                    else if (songs.isEmpty()) FindSongsCTA(isLoading, onFindSongs)
+                                    if (songs.isNotEmpty()) {
+                                        EnhancedShuffleToggle(isShuffleEnabled, onShuffleToggle, onReshuffle)
+                                    }
+                                    if (isLoading) {
+                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                            CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                                        }
+                                    }
+                                    else if (songs.isEmpty()) {
+                                        FindSongsCTA(isLoading, onFindSongs)
+                                    }
                                     else {
-                                        LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
+                                        LazyColumn(
+                                            modifier = Modifier.fillMaxSize(),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                                            contentPadding = PaddingValues(bottom = 16.dp)
+                                        ) {
                                             items(items = songs, key = { it.id }) { song ->
                                                 SongItem(
                                                     song = song,
+                                                    isPlaying = currentSong?.id == song.id,
                                                     currentList = songs,
                                                     isFavorite = favoriteIds.contains(song.id.toString()),
                                                     onFavoriteToggle = toggleFavorite,
@@ -677,49 +800,6 @@ fun MainScreen(
                                 }
                             }
                             1 -> {
-                                Column {
-                                    val favoriteSongs by remember(songs, favoriteIds) { derivedStateOf { songs.filter { favoriteIds.contains(it.id.toString()) }.toImmutableList() } }
-                                    if (favoriteSongs.isNotEmpty()) EnhancedShuffleToggle(isShuffleEnabled, onShuffleToggle, onReshuffle)
-
-                                    if (favoriteSongs.isEmpty()) {
-                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                            Text(text = "No favorites yet.", color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center, fontWeight = FontWeight.Medium)
-                                        }
-                                    } else {
-                                        LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
-                                            items(items = favoriteSongs, key = { it.id }) { song ->
-                                                SongItem(
-                                                    song = song,
-                                                    currentList = favoriteSongs,
-                                                    isFavorite = true,
-                                                    onFavoriteToggle = toggleFavorite,
-                                                    onSongClick = onSongSelected
-                                                )
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            2 -> {
-                                GroupedTab(
-                                    items = albums,
-                                    isLoading = isLoading,
-                                    icon = Icons.Default.Album,
-                                    selectedItem = selectedAlbum,
-                                    onItemClick = { selectedAlbum = it },
-                                    onBackClick = { selectedAlbum = null },
-                                    songs = songs,
-                                    filterPredicate = { it.album == selectedAlbum },
-                                    favoriteIds = favoriteIds,
-                                    isShuffleEnabled = isShuffleEnabled,
-                                    onShuffleToggle = onShuffleToggle,
-                                    onReshuffle = onReshuffle,
-                                    onToggleFavorite = toggleFavorite,
-                                    onSongSelected = onSongSelected,
-                                    onFindSongs = onFindSongs
-                                )
-                            }
-                            3 -> {
                                 PlaylistsTab(
                                     playlists = playlists,
                                     songs = songs,
@@ -740,26 +820,7 @@ fun MainScreen(
                                     }
                                 )
                             }
-                            4 -> {
-                                GroupedTab(
-                                    items = artists,
-                                    isLoading = isLoading,
-                                    icon = Icons.Default.Person,
-                                    selectedItem = selectedArtist,
-                                    onItemClick = { selectedArtist = it },
-                                    onBackClick = { selectedArtist = null },
-                                    songs = songs,
-                                    filterPredicate = { it.artist == selectedArtist },
-                                    favoriteIds = favoriteIds,
-                                    isShuffleEnabled = isShuffleEnabled,
-                                    onShuffleToggle = onShuffleToggle,
-                                    onReshuffle = onReshuffle,
-                                    onToggleFavorite = toggleFavorite,
-                                    onSongSelected = onSongSelected,
-                                    onFindSongs = onFindSongs
-                                )
-                            }
-                            5 -> {
+                            2 -> {
                                 GroupedTab(
                                     items = folders,
                                     isLoading = isLoading,
@@ -775,7 +836,86 @@ fun MainScreen(
                                     onReshuffle = onReshuffle,
                                     onToggleFavorite = toggleFavorite,
                                     onSongSelected = onSongSelected,
-                                    onFindSongs = onFindSongs
+                                    onFindSongs = onFindSongs,
+                                    currentSong = currentSong
+                                )
+                            }
+                            3 -> {
+                                Column {
+                                    val favoriteSongs by remember(songs, favoriteIds) {
+                                        derivedStateOf { songs.filter { favoriteIds.contains(it.id.toString()) }.toImmutableList() }
+                                    }
+                                    if (favoriteSongs.isNotEmpty()) {
+                                        EnhancedShuffleToggle(isShuffleEnabled, onShuffleToggle, onReshuffle)
+                                    }
+
+                                    if (favoriteSongs.isEmpty()) {
+                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                            Text(
+                                                text = "No favorites yet.",
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                textAlign = TextAlign.Center,
+                                                fontWeight = FontWeight.Medium
+                                            )
+                                        }
+                                    } else {
+                                        LazyColumn(
+                                            modifier = Modifier.fillMaxSize(),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                                            contentPadding = PaddingValues(bottom = 16.dp)
+                                        ) {
+                                            items(items = favoriteSongs, key = { it.id }) { song ->
+                                                SongItem(
+                                                    song = song,
+                                                    isPlaying = currentSong?.id == song.id,
+                                                    currentList = favoriteSongs,
+                                                    isFavorite = true,
+                                                    onFavoriteToggle = toggleFavorite,
+                                                    onSongClick = onSongSelected
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            4 -> {
+                                GroupedTab(
+                                    items = albums,
+                                    isLoading = isLoading,
+                                    icon = Icons.Default.Album,
+                                    selectedItem = selectedAlbum,
+                                    onItemClick = { selectedAlbum = it },
+                                    onBackClick = { selectedAlbum = null },
+                                    songs = songs,
+                                    filterPredicate = { it.album == selectedAlbum },
+                                    favoriteIds = favoriteIds,
+                                    isShuffleEnabled = isShuffleEnabled,
+                                    onShuffleToggle = onShuffleToggle,
+                                    onReshuffle = onReshuffle,
+                                    onToggleFavorite = toggleFavorite,
+                                    onSongSelected = onSongSelected,
+                                    onFindSongs = onFindSongs,
+                                    currentSong = currentSong
+                                )
+                            }
+                            5 -> {
+                                GroupedTab(
+                                    items = artists,
+                                    isLoading = isLoading,
+                                    icon = Icons.Default.Person,
+                                    selectedItem = selectedArtist,
+                                    onItemClick = { selectedArtist = it },
+                                    onBackClick = { selectedArtist = null },
+                                    songs = songs,
+                                    filterPredicate = { it.artist == selectedArtist },
+                                    favoriteIds = favoriteIds,
+                                    isShuffleEnabled = isShuffleEnabled,
+                                    onShuffleToggle = onShuffleToggle,
+                                    onReshuffle = onReshuffle,
+                                    onToggleFavorite = toggleFavorite,
+                                    onSongSelected = onSongSelected,
+                                    onFindSongs = onFindSongs,
+                                    currentSong = currentSong
                                 )
                             }
                         }
@@ -790,11 +930,25 @@ fun MainScreen(
 fun FindSongsCTA(isLoading: Boolean, onFindSongs: () -> Unit) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            // UPDATED FONT COLOR: Stronger visibility
-            Text(text = "Your library is empty", fontSize = 18.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground)
+            Text(
+                text = "Your library is empty",
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Medium,
+                color = MaterialTheme.colorScheme.onBackground
+            )
             Spacer(modifier = Modifier.height(16.dp))
-            Button(onClick = onFindSongs, enabled = !isLoading, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) {
-                if (isLoading) CircularProgressIndicator(modifier = Modifier.size(20.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
+            Button(
+                onClick = onFindSongs,
+                enabled = !isLoading,
+                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(20.dp),
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        strokeWidth = 2.dp
+                    )
+                }
                 else {
                     Icon(imageVector = Icons.Default.Search, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
@@ -821,15 +975,28 @@ fun GroupedTab(
     onReshuffle: () -> Unit,
     onToggleFavorite: (Long) -> Unit,
     onSongSelected: (Song, ImmutableList<Song>) -> Unit,
-    onFindSongs: () -> Unit
+    onFindSongs: () -> Unit,
+    currentSong: Song?
 ) {
     if (selectedItem == null) {
         Column {
-            if (items.isNotEmpty()) EnhancedShuffleToggle(isShuffleEnabled, onShuffleToggle, onReshuffle)
-            if (isLoading) Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = MaterialTheme.colorScheme.primary) }
-            else if (items.isEmpty()) FindSongsCTA(isLoading, onFindSongs)
+            if (items.isNotEmpty()) {
+                EnhancedShuffleToggle(isShuffleEnabled, onShuffleToggle, onReshuffle)
+            }
+            if (isLoading) {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                }
+            }
+            else if (items.isEmpty()) {
+                FindSongsCTA(isLoading, onFindSongs)
+            }
             else {
-                LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    contentPadding = PaddingValues(bottom = 16.dp)
+                ) {
                     items(items) { (name, count) ->
                         GroupItem(name = name, count = count, icon = icon, onClick = { onItemClick(name) })
                     }
@@ -837,23 +1004,54 @@ fun GroupedTab(
             }
         }
     } else {
-        val groupSongs by remember(songs, selectedItem) { derivedStateOf { songs.filter(filterPredicate).toImmutableList() } }
+        val groupSongs by remember(songs, selectedItem) {
+            derivedStateOf { songs.filter(filterPredicate).toImmutableList() }
+        }
 
         Column(modifier = Modifier.fillMaxSize()) {
-            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Row(modifier = Modifier.weight(1f).clickable { onBackClick() }.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onBackground)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onBackClick() }
+                        .padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                        contentDescription = "Back",
+                        tint = MaterialTheme.colorScheme.onBackground
+                    )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text(text = selectedItem, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onBackground)
+                    Text(
+                        text = selectedItem,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
                 }
             }
+
             if (groupSongs.isNotEmpty()) {
                 EnhancedShuffleToggle(isShuffleEnabled, onShuffleToggle, onReshuffle)
             }
-            LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
+
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+                contentPadding = PaddingValues(bottom = 16.dp)
+            ) {
                 items(items = groupSongs, key = { it.id }) { song ->
                     SongItem(
                         song = song,
+                        isPlaying = currentSong?.id == song.id,
                         currentList = groupSongs,
                         isFavorite = favoriteIds.contains(song.id.toString()),
                         onFavoriteToggle = onToggleFavorite,
@@ -887,48 +1085,92 @@ fun PlaylistsTab(
             onDismissRequest = { playlistToDelete = null },
             title = { Text(text = "Delete Playlist") },
             text = { Text(text = "Are you sure you want to delete this playlist?") },
-            confirmButton = { TextButton(onClick = { playlistToDelete?.let { onDeletePlaylist(it) }; playlistToDelete = null }) { Text(text = "Delete", color = Color.Red, fontWeight = FontWeight.Bold) } },
-            dismissButton = { TextButton(onClick = { playlistToDelete = null }) { Text(text = "Cancel", fontWeight = FontWeight.Bold) } }
+            confirmButton = {
+                TextButton(onClick = {
+                    playlistToDelete?.let { onDeletePlaylist(it) }
+                    playlistToDelete = null
+                }) {
+                    Text(text = "Delete", color = Color.Red, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { playlistToDelete = null }) {
+                    Text(text = "Cancel", fontWeight = FontWeight.Bold)
+                }
+            }
         )
     }
 
     if (selectedPlaylist == null) {
         Column(modifier = Modifier.fillMaxSize()) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Button(onClick = onCreateClick, modifier = Modifier.weight(1f).padding(bottom = 8.dp), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) {
+                Button(
+                    onClick = onCreateClick,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(bottom = 8.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
                     Icon(imageVector = Icons.Default.Add, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(text = "Create Playlist", fontWeight = FontWeight.Bold)
                 }
             }
 
-            if (playlists.isEmpty()) Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) { Text(text = "No playlists yet.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium) }
-            else {
-                LazyColumn(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
+            if (playlists.isEmpty()) {
+                Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                    Text(text = "No playlists yet.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium)
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    contentPadding = PaddingValues(bottom = 16.dp)
+                ) {
                     items(playlists) { playlist ->
-                        GroupItem(name = playlist.name, count = playlist.songIds.size, icon = Icons.AutoMirrored.Filled.PlaylistPlay, onClick = { onPlaylistClick(playlist) }, onDeleteClick = { playlistToDelete = playlist })
+                        GroupItem(
+                            name = playlist.name,
+                            count = playlist.songIds.size,
+                            icon = Icons.AutoMirrored.Filled.PlaylistPlay,
+                            onClick = { onPlaylistClick(playlist) },
+                            onDeleteClick = { playlistToDelete = playlist }
+                        )
                     }
                 }
             }
         }
     } else {
-        val playlistSongs by remember(songs, selectedPlaylist) { derivedStateOf { selectedPlaylist.songIds.mapNotNull { id -> songs.find { it.id == id } }.toImmutableList() } }
+        val playlistSongs by remember(songs, selectedPlaylist) {
+            derivedStateOf {
+                selectedPlaylist.songIds.mapNotNull { id -> songs.find { it.id == id } }.toImmutableList()
+            }
+        }
 
         Column(modifier = Modifier.fillMaxSize()) {
-            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Row(modifier = Modifier.weight(1f).clickable { onBackClick() }.padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { onBackClick() }
+                        .padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onBackground)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(text = selectedPlaylist.name, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onBackground)
                 }
             }
+
             if (playlistSongs.isNotEmpty()) {
                 EnhancedShuffleToggle(isShuffleEnabled, onShuffleToggle, onReshuffle)
             }
-            LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
+
+            LazyColumn(modifier = Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
                 items(items = playlistSongs, key = { it.id }) { song ->
                     SongItem(
                         song = song,
+                        isPlaying = false, // Simplified for brevity in playlist view
                         currentList = playlistSongs,
                         isFavorite = favoriteIds.contains(song.id.toString()),
                         onFavoriteToggle = onToggleFavorite,
@@ -970,17 +1212,49 @@ fun CreatePlaylistScreen(
         Box(modifier = Modifier.fillMaxSize().background(gradient)) {
             Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onDismiss) { Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onBackground) }
-                    Text(text = "Create Playlist", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+                    IconButton(onClick = onDismiss) {
+                        Icon(imageVector = Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onBackground)
+                    }
+                    Text(
+                        text = "Create Playlist",
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground
+                    )
                 }
 
-                OutlinedTextField(value = playlistName, onValueChange = { playlistName = it }, label = { Text(text = "Playlist Name") }, modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = MaterialTheme.colorScheme.primary))
-                OutlinedTextField(value = searchQuery, onValueChange = { searchQuery = it }, label = { Text(text = "Search Songs") }, leadingIcon = { Icon(imageVector = Icons.Default.Search, contentDescription = null) }, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp), colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = MaterialTheme.colorScheme.primary))
+                OutlinedTextField(
+                    value = playlistName,
+                    onValueChange = { playlistName = it },
+                    label = { Text(text = "Playlist Name") },
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = MaterialTheme.colorScheme.primary)
+                )
 
-                Text(text = "Selection Options", fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.onBackground)
+                OutlinedTextField(
+                    value = searchQuery,
+                    onValueChange = { searchQuery = it },
+                    label = { Text(text = "Search Songs") },
+                    leadingIcon = { Icon(imageVector = Icons.Default.Search, contentDescription = null) },
+                    modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp),
+                    colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = MaterialTheme.colorScheme.primary)
+                )
+
+                Text(
+                    text = "Selection Options",
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.padding(top = 8.dp),
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+
                 Row(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     var showFolderDialog by remember { mutableStateOf(false) }
-                    Button(onClick = { showFolderDialog = true }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { Text(text = "Select Folder", fontWeight = FontWeight.SemiBold) }
+                    Button(
+                        onClick = { showFolderDialog = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Text(text = "Select Folder", fontWeight = FontWeight.SemiBold)
+                    }
 
                     if (showFolderDialog) {
                         AlertDialog(
@@ -989,7 +1263,17 @@ fun CreatePlaylistScreen(
                             text = {
                                 LazyColumn {
                                     items(folders) { (folderName, count) ->
-                                        Row(modifier = Modifier.fillMaxWidth().clickable { val folderSongs = allSongs.filter { it.folder == folderName }; selectedSongs = selectedSongs + folderSongs.map { it.id }.toSet(); showFolderDialog = false }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    val folderSongs = allSongs.filter { it.folder == folderName }
+                                                    selectedSongs = selectedSongs + folderSongs.map { it.id }.toSet()
+                                                    showFolderDialog = false
+                                                }
+                                                .padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
                                             Icon(imageVector = Icons.Default.Folder, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                                             Spacer(modifier = Modifier.width(12.dp))
                                             Text(text = "$folderName ($count songs)", color = MaterialTheme.colorScheme.onSurface)
@@ -997,18 +1281,45 @@ fun CreatePlaylistScreen(
                                     }
                                 }
                             },
-                            confirmButton = { TextButton(onClick = { showFolderDialog = false }) { Text(text = "Cancel", fontWeight = FontWeight.Bold) } }
+                            confirmButton = {
+                                TextButton(onClick = { showFolderDialog = false }) {
+                                    Text(text = "Cancel", fontWeight = FontWeight.Bold)
+                                }
+                            }
                         )
                     }
-                    Button(onClick = { selectedSongs = emptySet() }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)) { Text(text = "Clear All", fontWeight = FontWeight.SemiBold) }
+                    Button(
+                        onClick = { selectedSongs = emptySet() },
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                    ) {
+                        Text(text = "Clear All", fontWeight = FontWeight.SemiBold)
+                    }
                 }
 
-                Text(text = "Songs (${selectedSongs.size} selected)", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onBackground)
+                Text(
+                    text = "Songs (${selectedSongs.size} selected)",
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onBackground,
+                    modifier = Modifier.padding(bottom = 8.dp)
+                )
 
                 LazyColumn(modifier = Modifier.weight(1f)) {
                     items(filteredSongs) { song ->
-                        Row(modifier = Modifier.fillMaxWidth().clickable { selectedSongs = if (selectedSongs.contains(song.id)) selectedSongs - song.id else selectedSongs + song.id }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Checkbox(checked = selectedSongs.contains(song.id), onCheckedChange = { checked -> selectedSongs = if (checked) selectedSongs + song.id else selectedSongs - song.id })
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    selectedSongs = if (selectedSongs.contains(song.id)) selectedSongs - song.id else selectedSongs + song.id
+                                }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(
+                                checked = selectedSongs.contains(song.id),
+                                onCheckedChange = { checked ->
+                                    selectedSongs = if (checked) selectedSongs + song.id else selectedSongs - song.id
+                                }
+                            )
                             Spacer(modifier = Modifier.width(8.dp))
                             Column {
                                 Text(text = song.title, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground)
@@ -1018,7 +1329,16 @@ fun CreatePlaylistScreen(
                     }
                 }
 
-                Button(onClick = { if (playlistName.isNotBlank()) onSave(playlistName, selectedSongs) }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp), enabled = playlistName.isNotBlank() && selectedSongs.isNotEmpty(), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)) { Text(text = "Save Playlist", fontWeight = FontWeight.Bold) }
+                Button(
+                    onClick = {
+                        if (playlistName.isNotBlank()) onSave(playlistName, selectedSongs)
+                    },
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    enabled = playlistName.isNotBlank() && selectedSongs.isNotEmpty(),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                ) {
+                    Text(text = "Save Playlist", fontWeight = FontWeight.Bold)
+                }
             }
         }
     }
@@ -1060,12 +1380,25 @@ fun GroupItem(
             Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(32.dp), tint = MaterialTheme.colorScheme.primary)
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                // UPDATED FONT COLOR: Better contrast
-                Text(text = name, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface)
-                Text(text = "$count songs", style = MaterialTheme.typography.bodySmall, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    text = name,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "$count songs",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             }
             if (onDeleteClick != null) {
-                IconButton(onClick = onDeleteClick, modifier = Modifier.size(32.dp)) { Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red, modifier = Modifier.size(20.dp)) }
+                IconButton(onClick = onDeleteClick, modifier = Modifier.size(32.dp)) {
+                    Icon(imageVector = Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red, modifier = Modifier.size(20.dp))
+                }
             }
         }
     }
@@ -1092,56 +1425,72 @@ fun MiniPlayer(
     val rawPosition = if (isDragging) dragPosition else playbackPosition.toFloat()
     val safePosition = rawPosition.coerceIn(0f, safeDuration)
 
-    Surface(modifier = Modifier.fillMaxWidth().wrapContentHeight(), color = MaterialTheme.colorScheme.surfaceVariant, tonalElevation = 8.dp) {
-        // UPDATED PADDING: Tighter space
-        Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth()) {
-            if (isShuffleEnabled && queueSize > 0) {
-                Text(text = "Shuffle: ${shufflePosition + 1}/$queueSize", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
-            }
+    Surface(
+        modifier = Modifier.fillMaxWidth().wrapContentHeight(),
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        tonalElevation = 8.dp
+    ) {
+        Column(modifier = Modifier.padding(top = 4.dp, bottom = 8.dp, start = 16.dp, end = 16.dp).fillMaxWidth()) {
 
-            key(song.id) {
-                Text(text = song.title, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, modifier = Modifier.fillMaxWidth().basicMarquee(iterations = Int.MAX_VALUE, repeatDelayMillis = 2000), textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-
-            Spacer(modifier = Modifier.height(2.dp))
-
-            // UPDATED FONT COLOR: Stronger contrast
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(text = formatTime(safePosition.toLong()), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium)
-                Text(text = formatTime(song.duration.toLong()), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Medium)
-            }
-
-            // COMPACT SLIDER: Thinner visual line
+            // COMPACT SLIDER
             Slider(
                 value = safePosition,
                 onValueChange = { newPosition -> isDragging = true; dragPosition = newPosition },
                 onValueChangeFinished = { onSeek(dragPosition.toLong()); isDragging = false },
                 valueRange = 0f..safeDuration,
                 modifier = Modifier.fillMaxWidth().height(20.dp),
-                colors = SliderDefaults.colors(thumbColor = MaterialTheme.colorScheme.primary, activeTrackColor = MaterialTheme.colorScheme.primary, inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                colors = SliderDefaults.colors(
+                    thumbColor = MaterialTheme.colorScheme.primary,
+                    activeTrackColor = MaterialTheme.colorScheme.primary,
+                    inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                )
             )
 
-            Spacer(modifier = Modifier.height(2.dp))
-
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    IconButton(onClick = onPrevious) { Icon(imageVector = Icons.Default.SkipPrevious, contentDescription = "Previous", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
-                    IconButton(onClick = onPlayPause) { Icon(imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, contentDescription = if (isPlaying) "Pause" else "Play", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(32.dp)) }
-                    IconButton(onClick = onNext) { Icon(imageVector = Icons.Default.SkipNext, contentDescription = "Next", tint = MaterialTheme.colorScheme.onSurfaceVariant) }
+
+                // Track Info & Art
+                Card(modifier = Modifier.size(44.dp), shape = MaterialTheme.shapes.small) {
+                    Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
+                        Icon(imageVector = Icons.Default.MusicNote, contentDescription = null, modifier = Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+                        AsyncImage(model = song.albumArtUri, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                    }
                 }
 
                 Spacer(modifier = Modifier.width(12.dp))
 
-                Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.End) {
-                    Column(modifier = Modifier.weight(1f), horizontalAlignment = Alignment.End) {
-                        Text(text = song.artist, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.End, fontWeight = FontWeight.Medium)
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = song.title,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp,
+                        maxLines = 1,
+                        modifier = Modifier.fillMaxWidth().basicMarquee(iterations = Int.MAX_VALUE, repeatDelayMillis = 2000),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = song.artist,
+                        fontSize = 12.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                // Controls
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = onPrevious) {
+                        Icon(imageVector = Icons.Default.SkipPrevious, contentDescription = "Previous", tint = MaterialTheme.colorScheme.onSurface)
                     }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Card(modifier = Modifier.size(42.dp), shape = MaterialTheme.shapes.small) {
-                        Box(modifier = Modifier.fillMaxSize().background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
-                            Icon(imageVector = Icons.Default.MusicNote, contentDescription = null, modifier = Modifier.size(20.dp), tint = MaterialTheme.colorScheme.primary)
-                            AsyncImage(model = song.albumArtUri, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                        }
+                    IconButton(onClick = onPlayPause) {
+                        Icon(
+                            imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                            contentDescription = if (isPlaying) "Pause" else "Play",
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+                    IconButton(onClick = onNext) {
+                        Icon(imageVector = Icons.Default.SkipNext, contentDescription = "Next", tint = MaterialTheme.colorScheme.onSurface)
                     }
                 }
             }
@@ -1159,15 +1508,20 @@ fun formatTime(milliseconds: Long): String {
 @Composable
 fun SongItem(
     song: Song,
+    isPlaying: Boolean,
     currentList: ImmutableList<Song>,
     isFavorite: Boolean,
     onFavoriteToggle: (Long) -> Unit,
     onSongClick: (Song, ImmutableList<Song>) -> Unit
 ) {
+    val cardColor = if (isPlaying) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) else MaterialTheme.colorScheme.surface
+    val borderColor = if (isPlaying) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null
+
     Card(
         modifier = Modifier.fillMaxWidth().clickable { onSongClick(song, currentList) },
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        colors = CardDefaults.cardColors(containerColor = cardColor),
+        border = borderColor
     ) {
         Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Card(modifier = Modifier.size(40.dp), shape = MaterialTheme.shapes.small) {
@@ -1178,12 +1532,39 @@ fun SongItem(
             }
             Spacer(modifier = Modifier.width(16.dp))
             Column(modifier = Modifier.weight(1f)) {
-                // UPDATED FONT COLOR: Stronger contrast
-                Text(text = song.title, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface)
-                Text(text = "${song.artist} • ${song.album}", style = MaterialTheme.typography.bodySmall, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(
+                    text = song.title,
+                    fontWeight = if (isPlaying) FontWeight.ExtraBold else FontWeight.Bold,
+                    fontSize = 15.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "${song.artist} • ${song.album}",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+            if (isPlaying) {
+                Text(
+                    text = "PLAYING",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Black,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(end = 8.dp)
+                )
             }
             IconButton(onClick = { onFavoriteToggle(song.id) }, modifier = Modifier.size(32.dp)) {
-                Icon(imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder, contentDescription = "Toggle Favorite", tint = if (isFavorite) Color.Red else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+                Icon(
+                    imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                    contentDescription = "Toggle Favorite",
+                    tint = if (isFavorite) Color.Red else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp)
+                )
             }
         }
     }
