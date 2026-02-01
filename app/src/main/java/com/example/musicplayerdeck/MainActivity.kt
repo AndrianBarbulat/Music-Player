@@ -80,13 +80,6 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
 
-// ============================================================================
-// DATA MODELS
-// ============================================================================
-
-/**
- * Represents a single audio file on the device.
- */
 @Stable
 data class Song(
     val id: Long,
@@ -99,32 +92,18 @@ data class Song(
     val folder: String
 )
 
-/**
- * Represents a user-created collection of songs.
- */
 @Stable
 data class Playlist(
     val name: String,
     val songIds: ImmutableList<Long>
 )
 
-/**
- * Represents the current playback state for the MiniPlayer UI.
- */
 data class MiniPlayerState(
     val position: Long,
     val isPlaying: Boolean,
     val song: Song?
 )
 
-// ============================================================================
-// VIEWMODEL ARCHITECTURE
-// ============================================================================
-
-/**
- * Manages the state of the Music Player, bridges the UI to the MediaController,
- * and handles robust queue management including True Shuffle.
- */
 class MusicPlayerViewModel : ViewModel() {
     private var controller: MediaController? = null
 
@@ -153,9 +132,6 @@ class MusicPlayerViewModel : ViewModel() {
     var shufflePosition by mutableIntStateOf(0)
         private set
 
-    /**
-     * Starts the coroutine to update the playback position slider.
-     */
     fun initialize(prefs: SharedPreferences) {
         isShuffleEnabled = prefs.getBoolean("shuffle_enabled", false)
         viewModelScope.launch {
@@ -163,14 +139,11 @@ class MusicPlayerViewModel : ViewModel() {
                 if (isPlaying) {
                     playbackPosition = controller?.currentPosition ?: 0L
                 }
-                delay(500) // Update UI every half second
+                delay(500)
             }
         }
     }
 
-    /**
-     * Binds the ExoPlayer MediaController to the ViewModel state.
-     */
     fun setController(mediaController: MediaController) {
         controller = mediaController
         isPlaying = mediaController.isPlaying
@@ -212,14 +185,10 @@ class MusicPlayerViewModel : ViewModel() {
             }
         })
 
-        // Execute any actions the user clicked while the service was starting
         pendingActions.forEach { action -> action(mediaController) }
         pendingActions.clear()
     }
 
-    /**
-     * Safely executes commands on the media controller.
-     */
     private fun executeCommand(action: (MediaController) -> Unit) {
         val ctrl = controller
         if (ctrl != null) {
@@ -229,15 +198,11 @@ class MusicPlayerViewModel : ViewModel() {
         }
     }
 
-    /**
-     * Plays a specific song from a provided list/playlist context.
-     */
     fun playSong(song: Song, playlist: ImmutableList<Song>) {
         if (playlist.isEmpty()) return
 
         val playlistChanged = originalPlaylist != playlist || activePlaybackQueue.isEmpty()
 
-        // Update state instantly for UI responsiveness
         if (playlistChanged) {
             originalPlaylist = playlist
             activePlaybackQueue = generatePlaybackQueue(playlist, song)
@@ -245,7 +210,6 @@ class MusicPlayerViewModel : ViewModel() {
 
         val index = activePlaybackQueue.indexOfFirst { it.id == song.id }
 
-        // Queue player commands safely
         executeCommand { ctrl ->
             if (playlistChanged) {
                 ctrl.setMediaItems(buildMediaItems(activePlaybackQueue))
@@ -258,9 +222,6 @@ class MusicPlayerViewModel : ViewModel() {
         }
     }
 
-    /**
-     * Toggles true shuffle on or off.
-     */
     fun toggleShuffleMode(prefs: SharedPreferences) {
         if (originalPlaylist.isEmpty()) {
             isShuffleEnabled = !isShuffleEnabled
@@ -298,9 +259,6 @@ class MusicPlayerViewModel : ViewModel() {
         }
     }
 
-    /**
-     * Creates a Fisher-Yates style shuffled queue, ensuring the selected song plays first.
-     */
     private fun generatePlaybackQueue(
         playlist: ImmutableList<Song>,
         anchorSong: Song?
@@ -323,9 +281,6 @@ class MusicPlayerViewModel : ViewModel() {
         return shuffleOrder.map { playlist[it] }.toImmutableList()
     }
 
-    /**
-     * Re-scrambles the remaining songs in the queue without interrupting the current song.
-     */
     fun reshuffleQueue() {
         if (!isShuffleEnabled || originalPlaylist.isEmpty()) return
 
@@ -359,7 +314,6 @@ class MusicPlayerViewModel : ViewModel() {
             if (ctrl.hasNextMediaItem()) {
                 ctrl.seekToNext()
             } else {
-                // Reached the end of the list. Loop back to start but pause.
                 ctrl.seekTo(0, 0)
                 ctrl.pause()
             }
@@ -397,10 +351,6 @@ class MusicPlayerViewModel : ViewModel() {
         pendingActions.clear()
     }
 }
-
-// ============================================================================
-// MAIN ACTIVITY
-// ============================================================================
 
 class MainActivity : ComponentActivity() {
     private lateinit var controllerFuture: ListenableFuture<MediaController>
@@ -476,26 +426,20 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-// ============================================================================
-// BACKGROUND SERVICE & AUDIO FOCUS
-// ============================================================================
-
 class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
 
     override fun onCreate() {
         super.onCreate()
 
-        // AudioAttributes handles pausing for phone calls automatically
         val audioAttributes = AudioAttributes.Builder()
             .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
             .setUsage(C.USAGE_MEDIA)
             .build()
 
         val player = ExoPlayer.Builder(this)
-            .setAudioAttributes(audioAttributes, true) // Request Audio Focus
+            .setAudioAttributes(audioAttributes, true)
             .build().apply {
-                // Ensure small playlists don't break the 'Next' button flow
                 repeatMode = Player.REPEAT_MODE_ALL
             }
 
@@ -512,10 +456,6 @@ class PlaybackService : MediaSessionService() {
         super.onDestroy()
     }
 }
-
-// ============================================================================
-// UI COMPONENTS
-// ============================================================================
 
 @Composable
 fun EnhancedShuffleToggle(
@@ -535,7 +475,6 @@ fun EnhancedShuffleToggle(
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // NEW DESIGN: Expandable Main Button
         Button(
             onClick = onShuffleToggle,
             modifier = Modifier.weight(1f),
@@ -543,6 +482,8 @@ fun EnhancedShuffleToggle(
                 containerColor = if (isShuffleEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                 contentColor = if (isShuffleEnabled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
             ),
+            shape = RoundedCornerShape(12.dp),
+            elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp)
         ) {
             Icon(
@@ -559,7 +500,6 @@ fun EnhancedShuffleToggle(
             )
         }
 
-        // NEW DESIGN: Circular Icon Button for Reshuffle to prevent text wrapping issues
         if (isShuffleEnabled) {
             Spacer(modifier = Modifier.width(12.dp))
             FilledIconButton(
@@ -612,7 +552,6 @@ fun MainScreen(
         mutableStateOf(false)
     }
 
-    // Permission state handling for modern Android versions
     var hasPermission by remember {
         mutableStateOf(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -699,7 +638,6 @@ fun MainScreen(
         }
     }
 
-    // UPDATED TAB ORDER
     var selectedTabIndex by remember { mutableIntStateOf(0) }
     val tabs = listOf("Songs", "Playlists", "Folder", "Favorites", "Album", "Artist")
 
@@ -840,7 +778,6 @@ fun MainScreen(
                     Spacer(modifier = Modifier.height(16.dp))
 
                     Box(modifier = Modifier.weight(1f)) {
-                        // 0: Songs, 1: Playlists, 2: Folder, 3: Favorites, 4: Album, 5: Artist
                         when (selectedTabIndex) {
                             0 -> {
                                 Column(modifier = Modifier.fillMaxSize()) {
@@ -1040,7 +977,7 @@ fun FindSongsCTA(
             Text(
                 text = "Your library is empty",
                 fontSize = 18.sp,
-                fontWeight = FontWeight.SemiBold,
+                fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onBackground
             )
 
@@ -1445,7 +1382,9 @@ fun CreatePlaylistScreen(
                     label = {
                         Text(text = "Playlist Name")
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = MaterialTheme.colorScheme.primary,
                         focusedLabelColor = MaterialTheme.colorScheme.primary
@@ -1739,9 +1678,10 @@ fun MiniPlayer(
     ) {
         Column(
             modifier = Modifier
+                // INCREASED TOP & BOTTOM PADDING TO MAKE BAR TALLER
                 .padding(
-                    top = 0.dp,
-                    bottom = 12.dp,
+                    top = 12.dp,
+                    bottom = 16.dp,
                     start = 16.dp,
                     end = 16.dp
                 )
@@ -1773,13 +1713,13 @@ fun MiniPlayer(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 8.dp),
+                    .padding(top = 12.dp), // Added extra space below slider
                 verticalAlignment = Alignment.CenterVertically
             ) {
 
-                // Track Info & Art
+                // INCREASED ALBUM ART SIZE (44.dp -> 54.dp) to push height
                 Card(
-                    modifier = Modifier.size(48.dp),
+                    modifier = Modifier.size(54.dp),
                     shape = MaterialTheme.shapes.small,
                     elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
                 ) {
@@ -1822,6 +1762,7 @@ fun MiniPlayer(
                             ),
                         color = MaterialTheme.colorScheme.onSurface
                     )
+                    Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = song.artist,
                         fontSize = 13.sp,
@@ -1834,14 +1775,14 @@ fun MiniPlayer(
                 // Controls
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp) // Added more breathing room between buttons
                 ) {
                     IconButton(onClick = onPrevious) {
                         Icon(
                             imageVector = Icons.Default.SkipPrevious,
                             contentDescription = "Previous",
                             tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(28.dp)
+                            modifier = Modifier.size(32.dp) // Slightly larger icons
                         )
                     }
                     IconButton(onClick = onPlayPause) {
@@ -1849,7 +1790,7 @@ fun MiniPlayer(
                             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                             contentDescription = if (isPlaying) "Pause" else "Play",
                             tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(36.dp)
+                            modifier = Modifier.size(42.dp) // Significantly larger play button
                         )
                     }
                     IconButton(onClick = onNext) {
@@ -1857,7 +1798,7 @@ fun MiniPlayer(
                             imageVector = Icons.Default.SkipNext,
                             contentDescription = "Next",
                             tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(28.dp)
+                            modifier = Modifier.size(32.dp) // Slightly larger icons
                         )
                     }
                 }
