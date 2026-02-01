@@ -55,9 +55,10 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.core.splashscreen)
 
-    // Media3 ExoPlayer
-    implementation(libs.androidx.media3.exoplayer)
-    implementation(libs.androidx.media3.ui)
+    // Media3 ExoPlayer & Session (Forced to exactly 1.2.0 to prevent crashes)
+    implementation("androidx.media3:media3-exoplayer:1.2.0")
+    implementation("androidx.media3:media3-ui:1.2.0")
+    implementation("androidx.media3:media3-session:1.2.0")
 
     // Coil for Image Loading
     implementation(libs.coil.compose)
@@ -66,6 +67,9 @@ dependencies {
     implementation(libs.androidx.appcompat)
     implementation(libs.material)
     implementation(libs.androidx.constraintlayout)
+
+    // Immutable Collections for Compose performance
+    implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.4.0")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
