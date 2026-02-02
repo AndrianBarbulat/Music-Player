@@ -77,8 +77,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 import java.util.Locale
+
+// ─────────────────────────────────────────────
+// Data classes
+// ─────────────────────────────────────────────
 
 @Stable
 data class Song(
@@ -104,10 +110,27 @@ data class MiniPlayerState(
     val song: Song?
 )
 
+// ─────────────────────────────────────────────
+// Utility
+// ─────────────────────────────────────────────
+
+fun formatDuration(ms: Int): String {
+    val totalSec = ms / 1000
+    val min = totalSec / 60
+    val sec = totalSec % 60
+    return "%d:%02d".format(min, sec)
+}
+
+fun formatDurationLong(ms: Long): String = formatDuration(ms.toInt())
+
+// ─────────────────────────────────────────────
+// ViewModel
+// ─────────────────────────────────────────────
+
 class MusicPlayerViewModel : ViewModel() {
     private var controller: MediaController? = null
+    private var playerListener: Player.Listener? = null
 
-    // A queue to hold commands if the user clicks play before the service connects
     private val pendingActions = mutableListOf<(MediaController) -> Unit>()
 
     var currentSong by mutableStateOf<Song?>(null)
@@ -139,16 +162,24 @@ class MusicPlayerViewModel : ViewModel() {
                 if (isPlaying) {
                     playbackPosition = controller?.currentPosition ?: 0L
                 }
-                delay(500)
+                // Poll slower when paused to save battery
+                delay(if (isPlaying) 250 else 1000)
             }
         }
     }
 
     fun setController(mediaController: MediaController) {
+        // Remove previous listener to prevent stacking duplicates
+        val oldListener = playerListener
+        val oldController = controller
+        if (oldListener != null && oldController != null) {
+            oldController.removeListener(oldListener)
+        }
+
         controller = mediaController
         isPlaying = mediaController.isPlaying
 
-        mediaController.addListener(object : Player.Listener {
+        val listener = object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 val newSong = activePlaybackQueue.find { it.id.toString() == mediaItem?.mediaId }
                 currentSong = newSong
@@ -174,7 +205,8 @@ class MusicPlayerViewModel : ViewModel() {
             ) {
                 if (isShuffleEnabled && reason == Player.DISCONTINUITY_REASON_AUTO_TRANSITION) {
                     val newMediaItem = newPosition.mediaItem
-                    val newSong = activePlaybackQueue.find { it.id.toString() == newMediaItem?.mediaId }
+                    val newSong =
+                        activePlaybackQueue.find { it.id.toString() == newMediaItem?.mediaId }
                     newSong?.let {
                         val newIndex = activePlaybackQueue.indexOfFirst { it.id == newSong.id }
                         if (newIndex != -1 && newIndex != shufflePosition) {
@@ -183,7 +215,10 @@ class MusicPlayerViewModel : ViewModel() {
                     }
                 }
             }
-        })
+        }
+
+        playerListener = listener
+        mediaController.addListener(listener)
 
         pendingActions.forEach { action -> action(mediaController) }
         pendingActions.clear()
@@ -347,10 +382,19 @@ class MusicPlayerViewModel : ViewModel() {
 
     override fun onCleared() {
         super.onCleared()
+        val listener = playerListener
+        if (listener != null) {
+            controller?.removeListener(listener)
+        }
+        playerListener = null
         controller = null
         pendingActions.clear()
     }
 }
+
+// ─────────────────────────────────────────────
+// Activity
+// ─────────────────────────────────────────────
 
 class MainActivity : ComponentActivity() {
     private lateinit var controllerFuture: ListenableFuture<MediaController>
@@ -426,6 +470,10 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+// ─────────────────────────────────────────────
+// Playback Service
+// ─────────────────────────────────────────────
+
 class PlaybackService : MediaSessionService() {
     private var mediaSession: MediaSession? = null
 
@@ -457,6 +505,10 @@ class PlaybackService : MediaSessionService() {
     }
 }
 
+// ─────────────────────────────────────────────
+// Shuffle Toggle
+// ─────────────────────────────────────────────
+
 @Composable
 fun EnhancedShuffleToggle(
     isShuffleEnabled: Boolean,
@@ -466,12 +518,7 @@ fun EnhancedShuffleToggle(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(
-                top = 8.dp,
-                bottom = 16.dp,
-                start = 8.dp,
-                end = 8.dp
-            ),
+            .padding(top = 8.dp, bottom = 16.dp, start = 8.dp, end = 8.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -479,8 +526,10 @@ fun EnhancedShuffleToggle(
             onClick = onShuffleToggle,
             modifier = Modifier.weight(1f),
             colors = ButtonDefaults.buttonColors(
-                containerColor = if (isShuffleEnabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                contentColor = if (isShuffleEnabled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                containerColor = if (isShuffleEnabled) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.surfaceVariant,
+                contentColor = if (isShuffleEnabled) MaterialTheme.colorScheme.onPrimary
+                else MaterialTheme.colorScheme.onSurfaceVariant
             ),
             shape = RoundedCornerShape(12.dp),
             elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp),
@@ -521,7 +570,10 @@ fun EnhancedShuffleToggle(
     }
 }
 
-@SuppressLint("UseKtx")
+// ─────────────────────────────────────────────
+// Main Screen
+// ─────────────────────────────────────────────
+
 @Composable
 fun MainScreen(
     currentSong: Song?,
@@ -544,29 +596,21 @@ fun MainScreen(
         context.getSharedPreferences("MusicPlayerDeckPrefs", Context.MODE_PRIVATE)
     }
 
-    var songs by remember {
-        mutableStateOf<ImmutableList<Song>>(persistentListOf())
-    }
-
-    var isLoading by remember {
-        mutableStateOf(false)
-    }
+    var songs by remember { mutableStateOf<ImmutableList<Song>>(persistentListOf()) }
+    var isLoading by remember { mutableStateOf(false) }
 
     var hasPermission by remember {
         mutableStateOf(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 ContextCompat.checkSelfPermission(
-                    context,
-                    Manifest.permission.READ_MEDIA_AUDIO
+                    context, Manifest.permission.READ_MEDIA_AUDIO
                 ) == PackageManager.PERMISSION_GRANTED &&
                         ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.POST_NOTIFICATIONS
+                            context, Manifest.permission.POST_NOTIFICATIONS
                         ) == PackageManager.PERMISSION_GRANTED
             } else {
                 ContextCompat.checkSelfPermission(
-                    context,
-                    Manifest.permission.READ_EXTERNAL_STORAGE
+                    context, Manifest.permission.READ_EXTERNAL_STORAGE
                 ) == PackageManager.PERMISSION_GRANTED
             }
         )
@@ -576,23 +620,15 @@ fun MainScreen(
         mutableStateOf(prefs.getStringSet("favorite_ids", emptySet()) ?: emptySet())
     }
 
-    var playlists by remember {
-        mutableStateOf(loadPlaylists(prefs))
-    }
-
-    var isCreatingPlaylist by remember {
-        mutableStateOf(false)
-    }
+    var playlists by remember { mutableStateOf(loadPlaylists(prefs)) }
+    var isCreatingPlaylist by remember { mutableStateOf(false) }
 
     val toggleFavorite: (Long) -> Unit = remember {
         { songId: Long ->
             val newFavorites = favoriteIds.toMutableSet()
             val idStr = songId.toString()
-            if (newFavorites.contains(idStr)) {
-                newFavorites.remove(idStr)
-            } else {
-                newFavorites.add(idStr)
-            }
+            if (newFavorites.contains(idStr)) newFavorites.remove(idStr)
+            else newFavorites.add(idStr)
             favoriteIds = newFavorites
             prefs.edit { putStringSet("favorite_ids", newFavorites) }
         }
@@ -601,9 +637,11 @@ fun MainScreen(
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        val audioGranted = permissions[Manifest.permission.READ_MEDIA_AUDIO] ?: permissions[Manifest.permission.READ_EXTERNAL_STORAGE] ?: false
+        val audioGranted =
+            permissions[Manifest.permission.READ_MEDIA_AUDIO]
+                ?: permissions[Manifest.permission.READ_EXTERNAL_STORAGE]
+                ?: false
         hasPermission = audioGranted
-
         if (audioGranted) {
             isLoading = true
             scope.launch {
@@ -630,7 +668,10 @@ fun MainScreen(
             }
         } else {
             val permissionsToRequest = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                arrayOf(Manifest.permission.READ_MEDIA_AUDIO, Manifest.permission.POST_NOTIFICATIONS)
+                arrayOf(
+                    Manifest.permission.READ_MEDIA_AUDIO,
+                    Manifest.permission.POST_NOTIFICATIONS
+                )
             } else {
                 arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
             }
@@ -648,17 +689,29 @@ fun MainScreen(
 
     val folders by remember {
         derivedStateOf {
-            songs.groupBy { it.folder }.mapValues { it.value.size }.toList().sortedBy { it.first }.toImmutableList()
+            songs.groupBy { it.folder }
+                .mapValues { it.value.size }
+                .toList()
+                .sortedBy { it.first }
+                .toImmutableList()
         }
     }
     val albums by remember {
         derivedStateOf {
-            songs.groupBy { it.album }.mapValues { it.value.size }.toList().sortedBy { it.first }.toImmutableList()
+            songs.groupBy { it.album }
+                .mapValues { it.value.size }
+                .toList()
+                .sortedBy { it.first }
+                .toImmutableList()
         }
     }
     val artists by remember {
         derivedStateOf {
-            songs.groupBy { it.artist }.mapValues { it.value.size }.toList().sortedBy { it.first }.toImmutableList()
+            songs.groupBy { it.artist }
+                .mapValues { it.value.size }
+                .toList()
+                .sortedBy { it.first }
+                .toImmutableList()
         }
     }
 
@@ -759,16 +812,12 @@ fun MainScreen(
                                 text = {
                                     Text(
                                         text = title,
-                                        color = if (selectedTabIndex == index) {
+                                        color = if (selectedTabIndex == index)
                                             MaterialTheme.colorScheme.onBackground
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant
-                                        },
-                                        fontWeight = if (selectedTabIndex == index) {
+                                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontWeight = if (selectedTabIndex == index)
                                             FontWeight.Bold
-                                        } else {
-                                            FontWeight.Medium
-                                        }
+                                        else FontWeight.Medium
                                     )
                                 }
                             )
@@ -797,14 +846,12 @@ fun MainScreen(
                                                 color = MaterialTheme.colorScheme.primary
                                             )
                                         }
-                                    }
-                                    else if (songs.isEmpty()) {
+                                    } else if (songs.isEmpty()) {
                                         FindSongsCTA(
                                             isLoading = isLoading,
                                             onFindSongs = onFindSongs
                                         )
-                                    }
-                                    else {
+                                    } else {
                                         LazyColumn(
                                             modifier = Modifier.fillMaxSize(),
                                             verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -824,10 +871,12 @@ fun MainScreen(
                                     }
                                 }
                             }
+
                             1 -> {
                                 PlaylistsTab(
                                     playlists = playlists,
                                     songs = songs,
+                                    currentSong = currentSong,
                                     selectedPlaylist = selectedPlaylist,
                                     onPlaylistClick = { selectedPlaylist = it },
                                     onBackClick = { selectedPlaylist = null },
@@ -839,12 +888,13 @@ fun MainScreen(
                                     onToggleFavorite = toggleFavorite,
                                     onSongSelected = onSongSelected,
                                     onDeletePlaylist = { playlist ->
-                                        playlists = playlists.filter { it.name != playlist.name }.toImmutableList()
+                                        playlists = playlists.filter { it.name != playlist.name }
+                                            .toImmutableList()
                                         savePlaylists(prefs, playlists)
-                                        prefs.edit().remove("playlist_ids_${playlist.name}").apply()
                                     }
                                 )
                             }
+
                             2 -> {
                                 GroupedTab(
                                     items = folders,
@@ -865,11 +915,13 @@ fun MainScreen(
                                     currentSong = currentSong
                                 )
                             }
+
                             3 -> {
                                 Column(modifier = Modifier.fillMaxSize()) {
                                     val favoriteSongs by remember(songs, favoriteIds) {
                                         derivedStateOf {
-                                            songs.filter { favoriteIds.contains(it.id.toString()) }.toImmutableList()
+                                            songs.filter { favoriteIds.contains(it.id.toString()) }
+                                                .toImmutableList()
                                         }
                                     }
 
@@ -900,7 +952,10 @@ fun MainScreen(
                                             verticalArrangement = Arrangement.spacedBy(8.dp),
                                             contentPadding = PaddingValues(bottom = 24.dp)
                                         ) {
-                                            items(items = favoriteSongs, key = { it.id }) { song ->
+                                            items(
+                                                items = favoriteSongs,
+                                                key = { it.id }
+                                            ) { song ->
                                                 SongItem(
                                                     song = song,
                                                     isPlaying = currentSong?.id == song.id,
@@ -914,6 +969,7 @@ fun MainScreen(
                                     }
                                 }
                             }
+
                             4 -> {
                                 GroupedTab(
                                     items = albums,
@@ -934,6 +990,7 @@ fun MainScreen(
                                     currentSong = currentSong
                                 )
                             }
+
                             5 -> {
                                 GroupedTab(
                                     items = artists,
@@ -962,6 +1019,10 @@ fun MainScreen(
     }
 }
 
+// ─────────────────────────────────────────────
+// Find Songs CTA
+// ─────────────────────────────────────────────
+
 @Composable
 fun FindSongsCTA(
     isLoading: Boolean,
@@ -971,18 +1032,14 @@ fun FindSongsCTA(
         modifier = Modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = "Your library is empty",
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Medium,
                 color = MaterialTheme.colorScheme.onBackground
             )
-
             Spacer(modifier = Modifier.height(16.dp))
-
             Button(
                 onClick = onFindSongs,
                 enabled = !isLoading,
@@ -997,12 +1054,8 @@ fun FindSongsCTA(
                         color = MaterialTheme.colorScheme.onPrimary,
                         strokeWidth = 2.dp
                     )
-                }
-                else {
-                    Icon(
-                        imageVector = Icons.Default.Search,
-                        contentDescription = null
-                    )
+                } else {
+                    Icon(imageVector = Icons.Default.Search, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "Scan Device for Music",
@@ -1014,6 +1067,10 @@ fun FindSongsCTA(
         }
     }
 }
+
+// ─────────────────────────────────────────────
+// Grouped Tab (Folder / Album / Artist)
+// ─────────────────────────────────────────────
 
 @Composable
 fun GroupedTab(
@@ -1048,18 +1105,11 @@ fun GroupedTab(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    CircularProgressIndicator(
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                 }
-            }
-            else if (items.isEmpty()) {
-                FindSongsCTA(
-                    isLoading = isLoading,
-                    onFindSongs = onFindSongs
-                )
-            }
-            else {
+            } else if (items.isEmpty()) {
+                FindSongsCTA(isLoading = isLoading, onFindSongs = onFindSongs)
+            } else {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -1142,10 +1192,15 @@ fun GroupedTab(
     }
 }
 
+// ─────────────────────────────────────────────
+// Playlists Tab
+// ─────────────────────────────────────────────
+
 @Composable
 fun PlaylistsTab(
     playlists: ImmutableList<Playlist>,
     songs: ImmutableList<Song>,
+    currentSong: Song?,
     selectedPlaylist: Playlist?,
     onPlaylistClick: (Playlist) -> Unit,
     onBackClick: () -> Unit,
@@ -1163,33 +1218,18 @@ fun PlaylistsTab(
     if (playlistToDelete != null) {
         AlertDialog(
             onDismissRequest = { playlistToDelete = null },
-            title = {
-                Text(
-                    text = "Delete Playlist",
-                    fontWeight = FontWeight.Bold
-                )
-            },
-            text = {
-                Text(text = "Are you sure you want to delete this playlist?")
-            },
+            title = { Text(text = "Delete Playlist", fontWeight = FontWeight.Bold) },
+            text = { Text(text = "Are you sure you want to delete this playlist?") },
             confirmButton = {
-                TextButton(
-                    onClick = {
-                        playlistToDelete?.let { onDeletePlaylist(it) }
-                        playlistToDelete = null
-                    }
-                ) {
-                    Text(
-                        text = "Delete",
-                        color = Color.Red,
-                        fontWeight = FontWeight.Bold
-                    )
+                TextButton(onClick = {
+                    playlistToDelete?.let { onDeletePlaylist(it) }
+                    playlistToDelete = null
+                }) {
+                    Text(text = "Delete", color = Color.Red, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
-                TextButton(
-                    onClick = { playlistToDelete = null }
-                ) {
+                TextButton(onClick = { playlistToDelete = null }) {
                     Text(
                         text = "Cancel",
                         fontWeight = FontWeight.Bold,
@@ -1202,31 +1242,23 @@ fun PlaylistsTab(
 
     if (selectedPlaylist == null) {
         Column(modifier = Modifier.fillMaxSize()) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+            Button(
+                onClick = onCreateClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary
+                ),
+                contentPadding = PaddingValues(16.dp)
             ) {
-                Button(
-                    onClick = onCreateClick,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = MaterialTheme.colorScheme.primary
-                    ),
-                    contentPadding = PaddingValues(16.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = null
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = "Create New Playlist",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp
-                    )
-                }
+                Icon(imageVector = Icons.Default.Add, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Create New Playlist",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp
+                )
             }
 
             if (playlists.isEmpty()) {
@@ -1262,7 +1294,9 @@ fun PlaylistsTab(
     } else {
         val playlistSongs by remember(songs, selectedPlaylist) {
             derivedStateOf {
-                selectedPlaylist.songIds.mapNotNull { id -> songs.find { it.id == id } }.toImmutableList()
+                selectedPlaylist.songIds
+                    .mapNotNull { id -> songs.find { it.id == id } }
+                    .toImmutableList()
             }
         }
 
@@ -1313,7 +1347,8 @@ fun PlaylistsTab(
                 items(items = playlistSongs, key = { it.id }) { song ->
                     SongItem(
                         song = song,
-                        isPlaying = false,
+                        // FIX: now properly shows playing state inside playlists
+                        isPlaying = currentSong?.id == song.id,
                         currentList = playlistSongs,
                         isFavorite = favoriteIds.contains(song.id.toString()),
                         onFavoriteToggle = onToggleFavorite,
@@ -1324,6 +1359,10 @@ fun PlaylistsTab(
         }
     }
 }
+
+// ─────────────────────────────────────────────
+// Create Playlist Screen
+// ─────────────────────────────────────────────
 
 @Composable
 fun CreatePlaylistScreen(
@@ -1355,9 +1394,16 @@ fun CreatePlaylistScreen(
     BackHandler { onDismiss() }
 
     Surface(modifier = Modifier.fillMaxSize(), color = Color.Transparent) {
-        Box(modifier = Modifier.fillMaxSize().background(gradient)) {
-            Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(gradient)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = onDismiss) {
                         Icon(
@@ -1379,9 +1425,7 @@ fun CreatePlaylistScreen(
                 OutlinedTextField(
                     value = playlistName,
                     onValueChange = { playlistName = it },
-                    label = {
-                        Text(text = "Playlist Name")
-                    },
+                    label = { Text(text = "Playlist Name") },
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 8.dp),
@@ -1396,14 +1440,9 @@ fun CreatePlaylistScreen(
                 OutlinedTextField(
                     value = searchQuery,
                     onValueChange = { searchQuery = it },
-                    label = {
-                        Text(text = "Search Songs to Add")
-                    },
+                    label = { Text(text = "Search Songs to Add") },
                     leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = null
-                        )
+                        Icon(imageVector = Icons.Default.Search, contentDescription = null)
                     },
                     modifier = Modifier.fillMaxWidth(),
                     colors = OutlinedTextFieldDefaults.colors(
@@ -1428,9 +1467,7 @@ fun CreatePlaylistScreen(
 
                     var showFolderDialog by remember { mutableStateOf(false) }
 
-                    TextButton(
-                        onClick = { showFolderDialog = true }
-                    ) {
+                    TextButton(onClick = { showFolderDialog = true }) {
                         Text(
                             text = "Add by Folder",
                             fontWeight = FontWeight.Bold,
@@ -1441,12 +1478,7 @@ fun CreatePlaylistScreen(
                     if (showFolderDialog) {
                         AlertDialog(
                             onDismissRequest = { showFolderDialog = false },
-                            title = {
-                                Text(
-                                    text = "Select Folder",
-                                    fontWeight = FontWeight.Bold
-                                )
-                            },
+                            title = { Text(text = "Select Folder", fontWeight = FontWeight.Bold) },
                             text = {
                                 LazyColumn {
                                     items(folders) { (folderName, count) ->
@@ -1454,8 +1486,11 @@ fun CreatePlaylistScreen(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .clickable {
-                                                    val folderSongs = allSongs.filter { it.folder == folderName }
-                                                    selectedSongs = selectedSongs + folderSongs.map { it.id }.toSet()
+                                                    val folderSongs =
+                                                        allSongs.filter { it.folder == folderName }
+                                                    selectedSongs =
+                                                        selectedSongs + folderSongs.map { it.id }
+                                                            .toSet()
                                                     showFolderDialog = false
                                                 }
                                                 .padding(16.dp),
@@ -1477,13 +1512,8 @@ fun CreatePlaylistScreen(
                                 }
                             },
                             confirmButton = {
-                                TextButton(
-                                    onClick = { showFolderDialog = false }
-                                ) {
-                                    Text(
-                                        text = "Cancel",
-                                        fontWeight = FontWeight.Bold
-                                    )
+                                TextButton(onClick = { showFolderDialog = false }) {
+                                    Text(text = "Cancel", fontWeight = FontWeight.Bold)
                                 }
                             }
                         )
@@ -1510,13 +1540,13 @@ fun CreatePlaylistScreen(
                         ) {
                             Checkbox(
                                 checked = selectedSongs.contains(song.id),
-                                onCheckedChange = null, // Handled by Row click
+                                onCheckedChange = null,
                                 colors = CheckboxDefaults.colors(
                                     checkedColor = MaterialTheme.colorScheme.primary
                                 )
                             )
                             Spacer(modifier = Modifier.width(12.dp))
-                            Column {
+                            Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = song.title,
                                     fontWeight = FontWeight.SemiBold,
@@ -1533,6 +1563,13 @@ fun CreatePlaylistScreen(
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
+                            // Duration in create-playlist song rows
+                            Text(
+                                text = formatDuration(song.duration),
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(end = 4.dp)
+                            )
                         }
                     }
                 }
@@ -1550,42 +1587,78 @@ fun CreatePlaylistScreen(
                         containerColor = MaterialTheme.colorScheme.primary
                     )
                 ) {
-                    Text(
-                        text = "Save Playlist",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 16.sp
-                    )
+                    Text(text = "Save Playlist", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
             }
         }
     }
 }
 
-@SuppressLint("UseKtx")
+// ─────────────────────────────────────────────
+// Playlist persistence — JSON-based to preserve order
+// ─────────────────────────────────────────────
+
 fun savePlaylists(prefs: SharedPreferences, playlists: ImmutableList<Playlist>) {
-    val names = playlists.map { it.name }.toSet()
-    prefs.edit {
-        putStringSet("playlist_names", names)
-    }
+    val jsonArray = JSONArray()
     for (playlist in playlists) {
-        val ids = playlist.songIds.map { it.toString() }.toSet()
-        prefs.edit {
-            putStringSet("playlist_ids_${playlist.name}", ids)
+        val obj = JSONObject()
+        obj.put("name", playlist.name)
+        val idsArray = JSONArray()
+        for (id in playlist.songIds) {
+            idsArray.put(id)
         }
+        obj.put("songIds", idsArray)
+        jsonArray.put(obj)
+    }
+    prefs.edit {
+        putString("playlists_json", jsonArray.toString())
+        // Clean up legacy keys
+        remove("playlist_names")
     }
 }
 
 fun loadPlaylists(prefs: SharedPreferences): ImmutableList<Playlist> {
-    val names = prefs.getStringSet("playlist_names", emptySet()) ?: emptySet()
-    return names.map { name ->
-        val idsStr = prefs.getStringSet("playlist_ids_$name", emptySet()) ?: emptySet()
-        val ids = idsStr.mapNotNull { it.toLongOrNull() }.toImmutableList()
-        Playlist(
-            name = name,
-            songIds = ids
-        )
-    }.toImmutableList()
+    val json = prefs.getString("playlists_json", null)
+
+    // Migrate from legacy StringSet-based storage if present
+    if (json == null) {
+        val legacyNames = prefs.getStringSet("playlist_names", null)
+        if (legacyNames != null) {
+            val migrated = legacyNames.map { name ->
+                val idsStr = prefs.getStringSet("playlist_ids_$name", emptySet()) ?: emptySet()
+                val ids = idsStr.mapNotNull { it.toLongOrNull() }.toImmutableList()
+                Playlist(name = name, songIds = ids)
+            }.toImmutableList()
+            // Save in new format immediately
+            savePlaylists(prefs, migrated)
+            return migrated
+        }
+        return persistentListOf()
+    }
+
+    return try {
+        val jsonArray = JSONArray(json)
+        val result = mutableListOf<Playlist>()
+        for (i in 0 until jsonArray.length()) {
+            val obj = jsonArray.getJSONObject(i)
+            val name = obj.getString("name")
+            val idsArray = obj.getJSONArray("songIds")
+            val ids = mutableListOf<Long>()
+            for (j in 0 until idsArray.length()) {
+                ids.add(idsArray.getLong(j))
+            }
+            result.add(Playlist(name = name, songIds = ids.toImmutableList()))
+        }
+        result.toImmutableList()
+    } catch (e: Exception) {
+        e.printStackTrace()
+        persistentListOf()
+    }
 }
+
+// ─────────────────────────────────────────────
+// Group Item
+// ─────────────────────────────────────────────
 
 @Composable
 fun GroupItem(
@@ -1648,6 +1721,10 @@ fun GroupItem(
     }
 }
 
+// ─────────────────────────────────────────────
+// Mini Player — now with time labels
+// ─────────────────────────────────────────────
+
 @Composable
 fun MiniPlayer(
     song: Song,
@@ -1678,17 +1755,10 @@ fun MiniPlayer(
     ) {
         Column(
             modifier = Modifier
-                // INCREASED TOP & BOTTOM PADDING TO MAKE BAR TALLER
-                .padding(
-                    top = 12.dp,
-                    bottom = 16.dp,
-                    start = 16.dp,
-                    end = 16.dp
-                )
+                .padding(top = 12.dp, bottom = 16.dp, start = 16.dp, end = 16.dp)
                 .fillMaxWidth()
         ) {
-
-            // EXTREMELY COMPACT SLIDER (12.dp height limit)
+            // Slider
             Slider(
                 value = safePosition,
                 onValueChange = { newPosition ->
@@ -1710,14 +1780,32 @@ fun MiniPlayer(
                 )
             )
 
+            // Time labels
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 12.dp), // Added extra space below slider
+                    .padding(horizontal = 4.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text(
+                    text = formatDurationLong(safePosition.toLong()),
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(
+                    text = formatDuration(song.duration),
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-
-                // INCREASED ALBUM ART SIZE (44.dp -> 54.dp) to push height
+                // Album art
                 Card(
                     modifier = Modifier.size(54.dp),
                     shape = MaterialTheme.shapes.small,
@@ -1746,9 +1834,7 @@ fun MiniPlayer(
 
                 Spacer(modifier = Modifier.width(16.dp))
 
-                Column(
-                    modifier = Modifier.weight(1f)
-                ) {
+                Column(modifier = Modifier.weight(1f)) {
                     Text(
                         text = song.title,
                         fontWeight = FontWeight.Bold,
@@ -1775,14 +1861,14 @@ fun MiniPlayer(
                 // Controls
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp) // Added more breathing room between buttons
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     IconButton(onClick = onPrevious) {
                         Icon(
                             imageVector = Icons.Default.SkipPrevious,
                             contentDescription = "Previous",
                             tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(32.dp) // Slightly larger icons
+                            modifier = Modifier.size(32.dp)
                         )
                     }
                     IconButton(onClick = onPlayPause) {
@@ -1790,7 +1876,7 @@ fun MiniPlayer(
                             imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                             contentDescription = if (isPlaying) "Pause" else "Play",
                             tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(42.dp) // Significantly larger play button
+                            modifier = Modifier.size(42.dp)
                         )
                     }
                     IconButton(onClick = onNext) {
@@ -1798,7 +1884,7 @@ fun MiniPlayer(
                             imageVector = Icons.Default.SkipNext,
                             contentDescription = "Next",
                             tint = MaterialTheme.colorScheme.onSurface,
-                            modifier = Modifier.size(32.dp) // Slightly larger icons
+                            modifier = Modifier.size(32.dp)
                         )
                     }
                 }
@@ -1806,6 +1892,10 @@ fun MiniPlayer(
         }
     }
 }
+
+// ─────────────────────────────────────────────
+// Song Item — now shows duration
+// ─────────────────────────────────────────────
 
 @Composable
 fun SongItem(
@@ -1816,13 +1906,8 @@ fun SongItem(
     onFavoriteToggle: (Long) -> Unit,
     onSongClick: (Song, ImmutableList<Song>) -> Unit
 ) {
-    // Solid background color regardless of playing state, relying on border/text for active indicator
     val cardColor = MaterialTheme.colorScheme.surface
-    val borderColor = if (isPlaying) {
-        BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
-    } else {
-        null
-    }
+    val borderColor = if (isPlaying) BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null
 
     Card(
         modifier = Modifier
@@ -1872,11 +1957,12 @@ fun SongItem(
                     fontSize = 15.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    color = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                    color = if (isPlaying) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurface
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "${song.artist} • ${song.album}",
+                    text = "${song.artist} • ${song.album} • ${formatDuration(song.duration)}",
                     style = MaterialTheme.typography.bodySmall,
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -1906,15 +1992,21 @@ fun SongItem(
                 modifier = Modifier.size(36.dp)
             ) {
                 Icon(
-                    imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                    imageVector = if (isFavorite) Icons.Default.Favorite
+                    else Icons.Default.FavoriteBorder,
                     contentDescription = "Toggle Favorite",
-                    tint = if (isFavorite) Color.Red else MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = if (isFavorite) Color.Red
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(22.dp)
                 )
             }
         }
     }
 }
+
+// ─────────────────────────────────────────────
+// Song fetching — sorted by title, uses RELATIVE_PATH on Q+
+// ─────────────────────────────────────────────
 
 fun fetchSongs(context: Context): ImmutableList<Song> {
     val songs = mutableListOf<Song>()
@@ -1925,67 +2017,76 @@ fun fetchSongs(context: Context): ImmutableList<Song> {
             MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         }
 
-        val projection = arrayOf(
+        val projection = mutableListOf(
             MediaStore.Audio.Media._ID,
             MediaStore.Audio.Media.TITLE,
             MediaStore.Audio.Media.ARTIST,
             MediaStore.Audio.Media.ALBUM,
             MediaStore.Audio.Media.DURATION,
             MediaStore.Audio.Media.ALBUM_ID,
-            MediaStore.Audio.Media.DATA
+            MediaStore.Audio.Media.DATA // still needed as fallback & for pre-Q
         )
 
+        // Prefer RELATIVE_PATH on Q+ for folder extraction
+        val hasRelativePath = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
+        if (hasRelativePath) {
+            projection.add(MediaStore.Audio.Media.RELATIVE_PATH)
+        }
+
         val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
+        val sortOrder = "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC"
 
         context.contentResolver.query(
             collection,
-            projection,
+            projection.toTypedArray(),
             selection,
             null,
-            null
+            sortOrder
         )?.use { cursor ->
-            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-            val titleColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
-            val artistColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
-            val albumColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
-            val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
-            val albumIdColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
-            val dataColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
+            val idCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+            val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+            val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+            val albumCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
+            val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
+            val albumIdCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
+            val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
+            val relPathCol = if (hasRelativePath) {
+                cursor.getColumnIndex(MediaStore.Audio.Media.RELATIVE_PATH)
+            } else -1
 
             while (cursor.moveToNext()) {
                 try {
-                    val id = cursor.getLong(idColumn)
-                    val title = cursor.getString(titleColumn) ?: "Unknown Track"
-                    val artist = cursor.getString(artistColumn) ?: "Unknown Artist"
-                    val album = cursor.getString(albumColumn) ?: "Unknown Album"
-                    val duration = cursor.getInt(durationColumn)
-                    val albumId = cursor.getLong(albumIdColumn)
-                    val path = cursor.getString(dataColumn) ?: ""
+                    val id = cursor.getLong(idCol)
+                    val title = cursor.getString(titleCol) ?: "Unknown Track"
+                    val artist = cursor.getString(artistCol) ?: "Unknown Artist"
+                    val album = cursor.getString(albumCol) ?: "Unknown Album"
+                    val duration = cursor.getInt(durationCol)
+                    val albumId = cursor.getLong(albumIdCol)
+                    val path = cursor.getString(dataCol) ?: ""
 
-                    val folder = try {
-                        if (path.isNotEmpty()) {
-                            File(path).parentFile?.name ?: "Unknown"
-                        } else {
+                    // Prefer RELATIVE_PATH, fall back to parent dir from DATA
+                    val folder = if (relPathCol >= 0) {
+                        val relPath = cursor.getString(relPathCol) ?: ""
+                        relPath.trimEnd('/').substringAfterLast('/').ifEmpty { "Unknown" }
+                    } else {
+                        try {
+                            if (path.isNotEmpty()) File(path).parentFile?.name ?: "Unknown"
+                            else "Unknown"
+                        } catch (_: Exception) {
                             "Unknown"
                         }
-                    } catch (_: Exception) {
-                        "Unknown"
                     }
 
                     val contentUri: Uri = ContentUris.withAppendedId(
-                        MediaStore.Audio.Media.EXTERNAL_CONTENT_URI,
-                        id
+                        MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id
                     )
 
                     val albumArtUri = try {
                         if (albumId > 0) {
                             ContentUris.withAppendedId(
-                                "content://media/external/audio/albumart".toUri(),
-                                albumId
+                                "content://media/external/audio/albumart".toUri(), albumId
                             )
-                        } else {
-                            null
-                        }
+                        } else null
                     } catch (_: Exception) {
                         null
                     }
@@ -2013,6 +2114,7 @@ fun fetchSongs(context: Context): ImmutableList<Song> {
     }
     return songs.toImmutableList()
 }
+
 
 @Preview(showBackground = true)
 @Composable
