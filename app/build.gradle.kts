@@ -70,7 +70,7 @@ dependencies {
 
     // Immutable Collections for Compose performance
     implementation("org.jetbrains.kotlinx:kotlinx-collections-immutable:0.4.0")
-
+    implementation("androidx.palette:palette-ktx:1.0.0")
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
