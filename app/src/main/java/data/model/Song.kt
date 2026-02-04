@@ -1,0 +1,16 @@
+package com.example.musicplayerdeck.data.model
+
+import android.net.Uri
+import androidx.compose.runtime.Stable
+
+@Stable
+data class Song(
+    val id: Long,
+    val title: String,
+    val artist: String,
+    val album: String,
+    val duration: Int,
+    val uri: Uri,
+    val albumArtUri: Uri?,
+    val folder: String
+)
