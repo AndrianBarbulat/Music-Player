@@ -17,11 +17,13 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.HeartBroken
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -57,87 +59,162 @@ fun SwipeableSongItem(
     isFavorite: Boolean,
     onFavoriteToggle: (Long) -> Unit,
     onSongClick: (Song, ImmutableList<Song>) -> Unit,
-    onAddToQueue: (Song) -> Unit
+    onAddToQueue: (Song) -> Unit,
+    isBatchMode: Boolean = false,
+    isSelected: Boolean = false,
+    onBatchToggle: ((Long) -> Unit)? = null
 ) {
-    val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value: SwipeToDismissBoxValue ->
-            when (value) {
-                SwipeToDismissBoxValue.StartToEnd -> {
-                    onFavoriteToggle(song.id)
-                    false
+    if (isBatchMode) {
+        SelectableSongItem(
+            song = song,
+            isPlaying = isPlaying,
+            isSelected = isSelected,
+            onToggle = { onBatchToggle?.invoke(song.id) }
+        )
+    } else {
+        val dismissState = rememberSwipeToDismissBoxState(
+            confirmValueChange = { value: SwipeToDismissBoxValue ->
+                when (value) {
+                    SwipeToDismissBoxValue.StartToEnd -> {
+                        onFavoriteToggle(song.id)
+                        false
+                    }
+                    SwipeToDismissBoxValue.EndToStart -> {
+                        onAddToQueue(song)
+                        false
+                    }
+                    else -> false
                 }
-                SwipeToDismissBoxValue.EndToStart -> {
-                    onAddToQueue(song)
-                    false
+            }
+        )
+
+        val bgColor: Color by animateColorAsState(
+            targetValue = when (dismissState.targetValue) {
+                SwipeToDismissBoxValue.StartToEnd -> Color.Red.copy(alpha = 0.15f)
+                SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                else -> Color.Transparent
+            },
+            label = "swipeBg"
+        )
+
+        val isSwipingStart = dismissState.targetValue == SwipeToDismissBoxValue.StartToEnd ||
+                dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd
+        val isSwipingEnd = dismissState.targetValue == SwipeToDismissBoxValue.EndToStart ||
+                dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart
+
+        SwipeToDismissBox(
+            state = dismissState,
+            backgroundContent = {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(bgColor)
+                        .padding(horizontal = 20.dp)
+                ) {
+                    if (isSwipingStart) {
+                        Row(
+                            Modifier.align(Alignment.CenterStart),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                if (isFavorite) Icons.Default.HeartBroken else Icons.Default.Favorite,
+                                null, tint = Color.Red
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                if (isFavorite) "Unfavorite" else "Favorite",
+                                fontWeight = FontWeight.Bold, color = Color.Red, fontSize = 14.sp
+                            )
+                        }
+                    }
+                    if (isSwipingEnd) {
+                        Row(
+                            Modifier.align(Alignment.CenterEnd),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "Add to Queue",
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary, fontSize = 14.sp
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Icon(
+                                Icons.Default.QueueMusic, null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
                 }
-                else -> false
+            },
+            enableDismissFromStartToEnd = true,
+            enableDismissFromEndToStart = true
+        ) {
+            SongItem(song, isPlaying, currentList, isFavorite, onFavoriteToggle, onSongClick)
+        }
+    }
+}
+
+@Composable
+fun SelectableSongItem(
+    song: Song,
+    isPlaying: Boolean,
+    isSelected: Boolean,
+    onToggle: () -> Unit
+) {
+    Card(
+        Modifier
+            .fillMaxWidth()
+            .clickable { onToggle() },
+        elevation = CardDefaults.cardElevation(2.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+            else MaterialTheme.colorScheme.surface
+        ),
+        border = if (isSelected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null
+    ) {
+        Row(
+            Modifier
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                if (isSelected) Icons.Default.CheckCircle else Icons.Default.RadioButtonUnchecked,
+                "Select",
+                Modifier.size(28.dp),
+                tint = if (isSelected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.width(12.dp))
+            Card(Modifier.size(44.dp), shape = MaterialTheme.shapes.small) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.MusicNote, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
+                    AsyncImage(model = song.albumArtUri, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    song.title,
+                    fontWeight = if (isPlaying) FontWeight.ExtraBold else FontWeight.Bold,
+                    fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    color = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    "${song.artist} • ${formatDuration(song.duration)}",
+                    style = MaterialTheme.typography.bodySmall, fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis
+                )
             }
         }
-    )
-
-    val bgColor: Color by animateColorAsState(
-        targetValue = when (dismissState.targetValue) {
-            SwipeToDismissBoxValue.StartToEnd -> Color.Red.copy(alpha = 0.15f)
-            SwipeToDismissBoxValue.EndToStart -> MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-            else -> Color.Transparent
-        },
-        label = "swipeBg"
-    )
-
-    val isSwipingStart = dismissState.targetValue == SwipeToDismissBoxValue.StartToEnd ||
-            dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd
-    val isSwipingEnd = dismissState.targetValue == SwipeToDismissBoxValue.EndToStart ||
-            dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart
-
-    SwipeToDismissBox(
-        state = dismissState,
-        backgroundContent = {
-            Box(
-                Modifier
-                    .fillMaxSize()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(bgColor)
-                    .padding(horizontal = 20.dp)
-            ) {
-                if (isSwipingStart) {
-                    Row(
-                        Modifier.align(Alignment.CenterStart),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            if (isFavorite) Icons.Default.HeartBroken else Icons.Default.Favorite,
-                            null, tint = Color.Red
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            if (isFavorite) "Unfavorite" else "Favorite",
-                            fontWeight = FontWeight.Bold, color = Color.Red, fontSize = 14.sp
-                        )
-                    }
-                }
-                if (isSwipingEnd) {
-                    Row(
-                        Modifier.align(Alignment.CenterEnd),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            "Add to Queue",
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary, fontSize = 14.sp
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Icon(
-                            Icons.Default.QueueMusic, null,
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-            }
-        },
-        enableDismissFromStartToEnd = true,
-        enableDismissFromEndToStart = true
-    ) {
-        SongItem(song, isPlaying, currentList, isFavorite, onFavoriteToggle, onSongClick)
     }
 }
 
@@ -171,26 +248,17 @@ fun SongItem(
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        Icons.Default.MusicNote, null, Modifier.size(22.dp),
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    AsyncImage(
-                        model = song.albumArtUri, contentDescription = null,
-                        modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop
-                    )
+                    Icon(Icons.Default.MusicNote, null, Modifier.size(22.dp), tint = MaterialTheme.colorScheme.primary)
+                    AsyncImage(model = song.albumArtUri, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                 }
             }
-
             Spacer(Modifier.width(16.dp))
-
             Column(Modifier.weight(1f)) {
                 Text(
                     song.title,
                     fontWeight = if (isPlaying) FontWeight.ExtraBold else FontWeight.Bold,
                     fontSize = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    color = if (isPlaying) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurface
+                    color = if (isPlaying) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
@@ -200,26 +268,17 @@ fun SongItem(
                     maxLines = 1, overflow = TextOverflow.Ellipsis
                 )
             }
-
             if (isPlaying) {
                 AnimatedEqualizer(
-                    modifier = Modifier
-                        .size(24.dp)
-                        .padding(end = 8.dp),
-                    isPlaying = true,
-                    barColor = MaterialTheme.colorScheme.primary
+                    modifier = Modifier.size(24.dp).padding(end = 8.dp),
+                    isPlaying = true, barColor = MaterialTheme.colorScheme.primary
                 )
             }
-
-            IconButton(
-                onClick = { onFavoriteToggle(song.id) },
-                modifier = Modifier.size(36.dp)
-            ) {
+            IconButton(onClick = { onFavoriteToggle(song.id) }, modifier = Modifier.size(36.dp)) {
                 Icon(
                     if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                     "Toggle Favorite",
-                    tint = if (isFavorite) Color.Red
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    tint = if (isFavorite) Color.Red else MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(22.dp)
                 )
             }
