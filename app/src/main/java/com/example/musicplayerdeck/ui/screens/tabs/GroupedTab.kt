@@ -24,7 +24,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,7 +39,10 @@ import com.example.musicplayerdeck.data.model.Song
 import com.example.musicplayerdeck.ui.components.EmptyState
 import com.example.musicplayerdeck.ui.components.EnhancedShuffleToggle
 import com.example.musicplayerdeck.ui.components.GroupItem
+import com.example.musicplayerdeck.ui.components.SortDropdown
+import com.example.musicplayerdeck.ui.components.SortOption
 import com.example.musicplayerdeck.ui.components.SwipeableSongItem
+import com.example.musicplayerdeck.ui.components.sortSongs
 import com.example.musicplayerdeck.util.formatTotalDuration
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
@@ -64,7 +69,8 @@ fun GroupedTab(
     currentSong: Song?,
     onAddToQueue: (Song) -> Unit,
     snackbarHostState: SnackbarHostState,
-    scope: CoroutineScope
+    scope: CoroutineScope,
+    playCounts: Map<Long, Int> = emptyMap()
 ) {
     if (selectedItem == null) {
         Column(Modifier.fillMaxSize()) {
@@ -76,13 +82,7 @@ fun GroupedTab(
                     CircularProgressIndicator()
                 }
             } else if (items.isEmpty()) {
-                EmptyState(
-                    icon = icon,
-                    title = "Nothing here yet",
-                    subtitle = "Scan your device to find music",
-                    actionLabel = "Scan Device for Music",
-                    onAction = onFindSongs
-                )
+                EmptyState(icon = icon, title = "Nothing here yet", subtitle = "Scan your device to find music", actionLabel = "Scan Device for Music", onAction = onFindSongs)
             } else {
                 LazyColumn(
                     Modifier.fillMaxSize(),
@@ -90,17 +90,19 @@ fun GroupedTab(
                     contentPadding = PaddingValues(bottom = 24.dp)
                 ) {
                     items(items = items) { (name, count) ->
-                        GroupItem(
-                            name = name, count = count, icon = icon,
-                            onClick = { onItemClick(name) }
-                        )
+                        GroupItem(name = name, count = count, icon = icon, onClick = { onItemClick(name) })
                     }
                 }
             }
         }
     } else {
-        val groupSongs: ImmutableList<Song> by remember(songs, selectedItem) {
-            derivedStateOf { songs.filter(filterPredicate).toImmutableList() }
+        var sortOption by remember { mutableStateOf(SortOption.NAME_ASC) }
+
+        val groupSongs: ImmutableList<Song> by remember(songs, selectedItem, sortOption, playCounts) {
+            derivedStateOf {
+                val filtered = songs.filter(filterPredicate)
+                sortSongs(filtered, sortOption, playCounts).toImmutableList()
+            }
         }
 
         Column(Modifier.fillMaxSize()) {
@@ -131,6 +133,9 @@ fun GroupedTab(
 
             if (groupSongs.isNotEmpty()) {
                 EnhancedShuffleToggle(isShuffleEnabled, onShuffleToggle, onReshuffle)
+                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    SortDropdown(currentSort = sortOption, showPlayCount = playCounts.isNotEmpty()) { sortOption = it }
+                }
             }
 
             LazyColumn(

@@ -12,27 +12,32 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -48,6 +53,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -70,7 +76,9 @@ import androidx.core.content.edit
 import com.example.musicplayerdeck.data.model.Playlist
 import com.example.musicplayerdeck.data.model.Song
 import com.example.musicplayerdeck.data.repository.fetchSongs
+import com.example.musicplayerdeck.data.repository.loadPlayCounts
 import com.example.musicplayerdeck.data.repository.loadPlaylists
+import com.example.musicplayerdeck.data.repository.loadRecentlyPlayed
 import com.example.musicplayerdeck.data.repository.savePlaylists
 import com.example.musicplayerdeck.ui.components.MiniPlayer
 import com.example.musicplayerdeck.ui.components.SwipeableSongItem
@@ -128,6 +136,13 @@ fun MainScreen(
     var playlists by remember { mutableStateOf(loadPlaylists(prefs)) }
     var isCreatingPlaylist by remember { mutableStateOf(false) }
     var isNowPlayingOpen by remember { mutableStateOf(false) }
+
+    // Play tracking
+    var playCounts by remember { mutableStateOf<Map<Long, Int>>(emptyMap()) }
+    var recentlyPlayedIds by remember { mutableStateOf<List<Long>>(emptyList()) }
+
+    // Batch add to playlist
+    var showBatchPlaylistPicker by remember { mutableStateOf<Set<Long>?>(null) }
 
     // Global search
     var isSearchActive by remember { mutableStateOf(false) }
@@ -199,7 +214,7 @@ fun MainScreen(
     }
 
     var selectedTabIndex by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Songs", "Playlists", "Folder", "Favorites", "Album", "Artist")
+    val tabs = listOf("Songs", "Playlists", "Folder", "Favorites", "Album", "Artist", "Recent", "Top")
     var selectedFolder by remember { mutableStateOf<String?>(null) }
     var selectedAlbum by remember { mutableStateOf<String?>(null) }
     var selectedArtist by remember { mutableStateOf<String?>(null) }
@@ -248,7 +263,66 @@ fun MainScreen(
         }
     }
 
+    // Load play history when songs are available
+    LaunchedEffect(songs) {
+        if (songs.isNotEmpty()) {
+            playCounts = loadPlayCounts(prefs)
+            recentlyPlayedIds = loadRecentlyPlayed(prefs).map { it.songId }
+        }
+    }
+
+    // Refresh play counts when returning from now playing or when song changes
+    LaunchedEffect(currentSong) {
+        if (songs.isNotEmpty()) {
+            playCounts = loadPlayCounts(prefs)
+            recentlyPlayedIds = loadRecentlyPlayed(prefs).map { it.songId }
+        }
+    }
+
     val gradient = if (isSystemInDarkTheme()) DarkMintGradient else MintGradient
+
+    // Batch playlist picker dialog
+    val batchIds = showBatchPlaylistPicker
+    if (batchIds != null && playlists.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { showBatchPlaylistPicker = null },
+            title = { Text("Add ${batchIds.size} songs to...", fontWeight = FontWeight.Bold) },
+            text = {
+                LazyColumn {
+                    items(items = playlists) { pl ->
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val newIds = (pl.songIds + batchIds.toList()).distinct().toImmutableList()
+                                    val updated = Playlist(pl.name, newIds)
+                                    playlists = playlists.map {
+                                        if (it.name == pl.name) updated else it
+                                    }.toImmutableList()
+                                    savePlaylists(prefs, playlists)
+                                    showBatchPlaylistPicker = null
+                                    scope.launch { snackbarHostState.showSnackbar("Added to ${pl.name}") }
+                                }
+                                .padding(16.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.AutoMirrored.Filled.PlaylistPlay, null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(Modifier.width(16.dp))
+                            Text(pl.name, fontWeight = FontWeight.Medium)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showBatchPlaylistPicker = null }) {
+                    Text("Cancel", fontWeight = FontWeight.Bold)
+                }
+            }
+        )
+    }
 
     // Full Now Playing overlay
     AnimatedVisibility(
@@ -376,7 +450,6 @@ fun MainScreen(
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     if (isSearchActive && debouncedSearch.isNotBlank()) {
-                        // Search results view
                         Spacer(Modifier.height(8.dp))
                         if (searchResults.isEmpty()) {
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -423,7 +496,6 @@ fun MainScreen(
                             }
                         }
                     } else {
-                        // Normal tab content
                         Spacer(Modifier.height(8.dp))
                         ScrollableTabRow(
                             selectedTabIndex = selectedTabIndex,
@@ -461,7 +533,9 @@ fun MainScreen(
                                 0 -> SongsTab(
                                     songs, isLoading, isShuffleEnabled, currentSong, favoriteIds,
                                     onShuffleToggle, onReshuffle, toggleFav, onSongSelected,
-                                    onFindSongs, onAddToQueue, snackbarHostState, scope
+                                    onFindSongs, onAddToQueue, snackbarHostState, scope,
+                                    playCounts = playCounts,
+                                    onBatchAddToPlaylist = { ids -> showBatchPlaylistPicker = ids }
                                 )
                                 1 -> PlaylistsTab(
                                     playlists, songs, currentSong, selectedPlaylist,
@@ -472,34 +546,71 @@ fun MainScreen(
                                         playlists = playlists.filter { it.name != p.name }.toImmutableList()
                                         savePlaylists(prefs, playlists)
                                     },
-                                    onAddToQueue, snackbarHostState, scope
+                                    onAddToQueue, snackbarHostState, scope,
+                                    onUpdatePlaylist = { updated ->
+                                        playlists = playlists.map {
+                                            if (it.name == updated.name) updated else it
+                                        }.toImmutableList()
+                                        savePlaylists(prefs, playlists)
+                                    }
                                 )
                                 2 -> GroupedTab(
                                     folders, isLoading, Icons.Default.Folder, selectedFolder,
                                     { selectedFolder = it }, { selectedFolder = null }, songs,
                                     { it.folder == selectedFolder }, favoriteIds, isShuffleEnabled,
                                     onShuffleToggle, onReshuffle, toggleFav, onSongSelected,
-                                    onFindSongs, currentSong, onAddToQueue, snackbarHostState, scope
+                                    onFindSongs, currentSong, onAddToQueue, snackbarHostState, scope,
+                                    playCounts
                                 )
                                 3 -> FavoritesTab(
                                     songs, favoriteIds, isShuffleEnabled, currentSong,
                                     onShuffleToggle, onReshuffle, toggleFav, onSongSelected,
-                                    onAddToQueue, snackbarHostState, scope
+                                    onAddToQueue, snackbarHostState, scope, playCounts
                                 )
                                 4 -> GroupedTab(
                                     albums, isLoading, Icons.Default.Album, selectedAlbum,
                                     { selectedAlbum = it }, { selectedAlbum = null }, songs,
                                     { it.album == selectedAlbum }, favoriteIds, isShuffleEnabled,
                                     onShuffleToggle, onReshuffle, toggleFav, onSongSelected,
-                                    onFindSongs, currentSong, onAddToQueue, snackbarHostState, scope
+                                    onFindSongs, currentSong, onAddToQueue, snackbarHostState, scope,
+                                    playCounts
                                 )
                                 5 -> GroupedTab(
                                     artists, isLoading, Icons.Default.Person, selectedArtist,
                                     { selectedArtist = it }, { selectedArtist = null }, songs,
                                     { it.artist == selectedArtist }, favoriteIds, isShuffleEnabled,
                                     onShuffleToggle, onReshuffle, toggleFav, onSongSelected,
-                                    onFindSongs, currentSong, onAddToQueue, snackbarHostState, scope
+                                    onFindSongs, currentSong, onAddToQueue, snackbarHostState, scope,
+                                    playCounts
                                 )
+                                6 -> {
+                                    // Recently Played tab
+                                    val recentSongs = remember(songs, recentlyPlayedIds) {
+                                        recentlyPlayedIds.mapNotNull { id ->
+                                            songs.find { it.id == id }
+                                        }.toImmutableList()
+                                    }
+                                    SongsTab(
+                                        recentSongs, isLoading, isShuffleEnabled, currentSong,
+                                        favoriteIds, onShuffleToggle, onReshuffle, toggleFav,
+                                        onSongSelected, {}, onAddToQueue, snackbarHostState, scope,
+                                        playCounts = playCounts
+                                    )
+                                }
+                                7 -> {
+                                    // Most Played tab
+                                    val topSongs = remember(songs, playCounts) {
+                                        songs.filter { (playCounts[it.id] ?: 0) > 0 }
+                                            .sortedByDescending { playCounts[it.id] ?: 0 }
+                                            .toImmutableList()
+                                    }
+                                    SongsTab(
+                                        topSongs, isLoading, isShuffleEnabled, currentSong,
+                                        favoriteIds, onShuffleToggle, onReshuffle, toggleFav,
+                                        onSongSelected, {}, onAddToQueue, snackbarHostState, scope,
+                                        playCounts = playCounts
+                                    )
+                                }
                             }
                         }
                     }

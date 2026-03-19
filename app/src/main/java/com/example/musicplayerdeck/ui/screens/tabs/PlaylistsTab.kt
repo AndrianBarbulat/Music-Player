@@ -9,17 +9,27 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.EditOff
+import androidx.compose.material.icons.filled.RemoveCircleOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -44,6 +54,7 @@ import com.example.musicplayerdeck.ui.components.EmptyState
 import com.example.musicplayerdeck.ui.components.EnhancedShuffleToggle
 import com.example.musicplayerdeck.ui.components.GroupItem
 import com.example.musicplayerdeck.ui.components.SwipeableSongItem
+import com.example.musicplayerdeck.util.formatDuration
 import com.example.musicplayerdeck.util.formatTotalDuration
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
@@ -68,7 +79,8 @@ fun PlaylistsTab(
     onDeletePlaylist: (Playlist) -> Unit,
     onAddToQueue: (Song) -> Unit,
     snackbarHostState: SnackbarHostState,
-    scope: CoroutineScope
+    scope: CoroutineScope,
+    onUpdatePlaylist: ((Playlist) -> Unit)? = null
 ) {
     var toDelete by remember { mutableStateOf<Playlist?>(null) }
 
@@ -79,20 +91,13 @@ fun PlaylistsTab(
             title = { Text("Delete Playlist", fontWeight = FontWeight.Bold) },
             text = { Text("Are you sure you want to delete this playlist?") },
             confirmButton = {
-                TextButton(onClick = {
-                    onDeletePlaylist(deleteTarget)
-                    toDelete = null
-                }) {
+                TextButton(onClick = { onDeletePlaylist(deleteTarget); toDelete = null }) {
                     Text("Delete", color = Color.Red, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { toDelete = null }) {
-                    Text(
-                        "Cancel",
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Text("Cancel", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         )
@@ -137,11 +142,14 @@ fun PlaylistsTab(
             }
         }
     } else {
-        val plSongs: ImmutableList<Song> by remember(songs, selectedPlaylist) {
+        var isEditing by remember { mutableStateOf(false) }
+        var editableIds by remember(selectedPlaylist) {
+            mutableStateOf(selectedPlaylist.songIds.toList())
+        }
+
+        val plSongs: ImmutableList<Song> by remember(songs, editableIds) {
             derivedStateOf {
-                selectedPlaylist.songIds
-                    .mapNotNull { id -> songs.find { it.id == id } }
-                    .toImmutableList()
+                editableIds.mapNotNull { id -> songs.find { it.id == id } }.toImmutableList()
             }
         }
 
@@ -156,21 +164,19 @@ fun PlaylistsTab(
                     Modifier
                         .weight(1f)
                         .clip(RoundedCornerShape(8.dp))
-                        .clickable { onBackClick() }
+                        .clickable {
+                            if (isEditing) isEditing = false
+                            onBackClick()
+                        }
                         .padding(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        Icons.AutoMirrored.Filled.ArrowBack,
-                        "Back",
-                        tint = MaterialTheme.colorScheme.onBackground
-                    )
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = MaterialTheme.colorScheme.onBackground)
                     Spacer(Modifier.width(8.dp))
                     Column {
                         Text(
                             selectedPlaylist.name,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
+                            fontWeight = FontWeight.Bold, maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             color = MaterialTheme.colorScheme.onBackground
                         )
@@ -183,30 +189,152 @@ fun PlaylistsTab(
                         }
                     }
                 }
+
+                // Edit toggle
+                if (onUpdatePlaylist != null) {
+                    IconButton(onClick = {
+                        if (isEditing) {
+                            // Save changes
+                            onUpdatePlaylist(
+                                Playlist(selectedPlaylist.name, editableIds.toImmutableList())
+                            )
+                        }
+                        isEditing = !isEditing
+                    }) {
+                        Icon(
+                            if (isEditing) Icons.Default.EditOff else Icons.Default.Edit,
+                            if (isEditing) "Done editing" else "Edit playlist",
+                            tint = if (isEditing) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
             }
 
-            if (plSongs.isNotEmpty()) {
+            if (!isEditing && plSongs.isNotEmpty()) {
                 EnhancedShuffleToggle(isShuffleEnabled, onShuffleToggle, onReshuffle)
             }
 
-            LazyColumn(
-                Modifier.fillMaxSize(),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-                contentPadding = PaddingValues(bottom = 24.dp)
-            ) {
-                items(items = plSongs, key = { it.id }) { song ->
-                    SwipeableSongItem(
-                        song = song,
-                        isPlaying = currentSong?.id == song.id,
-                        currentList = plSongs,
-                        isFavorite = favoriteIds.contains(song.id.toString()),
-                        onFavoriteToggle = onToggleFavorite,
-                        onSongClick = onSongSelected,
-                        onAddToQueue = { qSong ->
-                            onAddToQueue(qSong)
-                            scope.launch { snackbarHostState.showSnackbar("Added to queue") }
+            if (isEditing) {
+                // Reorder mode
+                LazyColumn(
+                    Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                    contentPadding = PaddingValues(bottom = 24.dp)
+                ) {
+                    itemsIndexed(items = plSongs, key = { _, song -> song.id }) { index, song ->
+                        Card(
+                            Modifier.fillMaxWidth(),
+                            elevation = CardDefaults.cardElevation(2.dp),
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                        ) {
+                            Row(
+                                Modifier
+                                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                                    .fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Move buttons
+                                Column {
+                                    IconButton(
+                                        onClick = {
+                                            if (index > 0) {
+                                                val ml = editableIds.toMutableList()
+                                                val temp = ml[index]
+                                                ml[index] = ml[index - 1]
+                                                ml[index - 1] = temp
+                                                editableIds = ml
+                                            }
+                                        },
+                                        modifier = Modifier.size(28.dp),
+                                        enabled = index > 0
+                                    ) {
+                                        Icon(
+                                            Icons.Default.ArrowUpward, "Move up",
+                                            Modifier.size(18.dp),
+                                            tint = if (index > 0) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = {
+                                            if (index < editableIds.size - 1) {
+                                                val ml = editableIds.toMutableList()
+                                                val temp = ml[index]
+                                                ml[index] = ml[index + 1]
+                                                ml[index + 1] = temp
+                                                editableIds = ml
+                                            }
+                                        },
+                                        modifier = Modifier.size(28.dp),
+                                        enabled = index < editableIds.size - 1
+                                    ) {
+                                        Icon(
+                                            Icons.Default.ArrowDownward, "Move down",
+                                            Modifier.size(18.dp),
+                                            tint = if (index < editableIds.size - 1) MaterialTheme.colorScheme.primary
+                                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                                        )
+                                    }
+                                }
+
+                                Spacer(Modifier.width(8.dp))
+
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        song.title,
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 14.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Text(
+                                        "${song.artist} • ${formatDuration(song.duration)}",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+
+                                // Remove button
+                                IconButton(
+                                    onClick = {
+                                        editableIds = editableIds.toMutableList().also { it.removeAt(index) }
+                                    },
+                                    modifier = Modifier.size(32.dp)
+                                ) {
+                                    Icon(
+                                        Icons.Default.RemoveCircleOutline, "Remove",
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
+                            }
                         }
-                    )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    contentPadding = PaddingValues(bottom = 24.dp)
+                ) {
+                    items(items = plSongs, key = { it.id }) { song ->
+                        SwipeableSongItem(
+                            song = song,
+                            isPlaying = currentSong?.id == song.id,
+                            currentList = plSongs,
+                            isFavorite = favoriteIds.contains(song.id.toString()),
+                            onFavoriteToggle = onToggleFavorite,
+                            onSongClick = onSongSelected,
+                            onAddToQueue = { qSong ->
+                                onAddToQueue(qSong)
+                                scope.launch { snackbarHostState.showSnackbar("Added to queue") }
+                            }
+                        )
+                    }
                 }
             }
         }

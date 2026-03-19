@@ -15,6 +15,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import com.example.musicplayerdeck.data.model.Song
+import com.example.musicplayerdeck.data.repository.recordPlay
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
@@ -25,6 +26,7 @@ class MusicPlayerViewModel : ViewModel() {
     private var controller: MediaController? = null
     private var playerListener: Player.Listener? = null
     private val pendingActions = mutableListOf<(MediaController) -> Unit>()
+    private var currentPrefs: SharedPreferences? = null
 
     var currentSong by mutableStateOf<Song?>(null)
         private set
@@ -42,6 +44,7 @@ class MusicPlayerViewModel : ViewModel() {
         private set
 
     fun initialize(prefs: SharedPreferences) {
+        currentPrefs = prefs
         isShuffleEnabled = prefs.getBoolean("shuffle_enabled", false)
         viewModelScope.launch {
             while (true) {
@@ -68,6 +71,9 @@ class MusicPlayerViewModel : ViewModel() {
                 val s = activePlaybackQueue.find { it.id.toString() == mediaItem?.mediaId }
                 currentSong = s
                 playbackPosition = 0L
+                if (s != null) {
+                    currentPrefs?.let { recordPlay(it, s.id) }
+                }
                 if (isShuffleEnabled && s != null) {
                     val idx = activePlaybackQueue.indexOfFirst { it.id == s.id }
                     if (idx != -1 && idx != shufflePosition) shufflePosition = idx
