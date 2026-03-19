@@ -3,12 +3,9 @@ package com.example.musicplayerdeck.ui.components
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.SortByAlpha
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -35,6 +32,7 @@ enum class SortOption(val label: String) {
     ARTIST_DESC("Artist Z-A"),
     DURATION_SHORT("Shortest first"),
     DURATION_LONG("Longest first"),
+    RECENTLY_ADDED("Recently added"),
     PLAY_COUNT("Most played")
 }
 
@@ -98,6 +96,7 @@ fun sortSongs(
         SortOption.ARTIST_DESC -> songs.sortedByDescending { it.artist.lowercase() }
         SortOption.DURATION_SHORT -> songs.sortedBy { it.duration }
         SortOption.DURATION_LONG -> songs.sortedByDescending { it.duration }
+        SortOption.RECENTLY_ADDED -> songs.sortedByDescending { it.dateAdded }
         SortOption.PLAY_COUNT -> songs.sortedByDescending { playCounts[it.id] ?: 0 }
     }
 }

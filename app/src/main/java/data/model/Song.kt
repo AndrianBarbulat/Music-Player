@@ -12,5 +12,6 @@ data class Song(
     val duration: Int,
     val uri: Uri,
     val albumArtUri: Uri?,
-    val folder: String
+    val folder: String,
+    val dateAdded: Long = 0L
 )

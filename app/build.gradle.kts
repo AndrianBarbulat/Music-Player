@@ -59,7 +59,7 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer:1.2.0")
     implementation("androidx.media3:media3-ui:1.2.0")
     implementation("androidx.media3:media3-session:1.2.0")
-
+    implementation("sh.calvin.reorderable:reorderable:2.4.2")
     // Coil for Image Loading
     implementation(libs.coil.compose)
 

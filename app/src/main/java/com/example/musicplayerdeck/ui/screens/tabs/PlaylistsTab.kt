@@ -1,7 +1,10 @@
 package com.example.musicplayerdeck.ui.screens.tabs
 
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -12,15 +15,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.EditOff
 import androidx.compose.material.icons.filled.RemoveCircleOutline
@@ -60,6 +63,8 @@ import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 
 @Composable
 fun PlaylistsTab(
@@ -91,13 +96,20 @@ fun PlaylistsTab(
             title = { Text("Delete Playlist", fontWeight = FontWeight.Bold) },
             text = { Text("Are you sure you want to delete this playlist?") },
             confirmButton = {
-                TextButton(onClick = { onDeletePlaylist(deleteTarget); toDelete = null }) {
+                TextButton(onClick = {
+                    onDeletePlaylist(deleteTarget)
+                    toDelete = null
+                }) {
                     Text("Delete", color = Color.Red, fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { toDelete = null }) {
-                    Text("Cancel", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        "Cancel",
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
             }
         )
@@ -154,6 +166,7 @@ fun PlaylistsTab(
         }
 
         Column(Modifier.fillMaxSize()) {
+            // Header
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -171,12 +184,17 @@ fun PlaylistsTab(
                         .padding(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = MaterialTheme.colorScheme.onBackground)
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack,
+                        "Back",
+                        tint = MaterialTheme.colorScheme.onBackground
+                    )
                     Spacer(Modifier.width(8.dp))
                     Column {
                         Text(
                             selectedPlaylist.name,
-                            fontWeight = FontWeight.Bold, maxLines = 1,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             color = MaterialTheme.colorScheme.onBackground
                         )
@@ -190,11 +208,9 @@ fun PlaylistsTab(
                     }
                 }
 
-                // Edit toggle
                 if (onUpdatePlaylist != null) {
                     IconButton(onClick = {
                         if (isEditing) {
-                            // Save changes
                             onUpdatePlaylist(
                                 Playlist(selectedPlaylist.name, editableIds.toImmutableList())
                             )
@@ -216,106 +232,112 @@ fun PlaylistsTab(
             }
 
             if (isEditing) {
-                // Reorder mode
+                // Drag reorder mode
+                val lazyListState = rememberLazyListState()
+                val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
+                    editableIds = editableIds.toMutableList().apply {
+                        add(to.index, removeAt(from.index))
+                    }
+                }
+
                 LazyColumn(
-                    Modifier.fillMaxSize(),
+                    state = lazyListState,
+                    modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(4.dp),
                     contentPadding = PaddingValues(bottom = 24.dp)
                 ) {
-                    itemsIndexed(items = plSongs, key = { _, song -> song.id }) { index, song ->
-                        Card(
-                            Modifier.fillMaxWidth(),
-                            elevation = CardDefaults.cardElevation(2.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-                        ) {
-                            Row(
+                    itemsIndexed(
+                        items = plSongs,
+                        key = { _, song -> song.id }
+                    ) { index, song ->
+                        ReorderableItem(
+                            state = reorderableState,
+                            key = song.id
+                        ) { isDragging ->
+                            val elevation by animateDpAsState(
+                                targetValue = if (isDragging) 8.dp else 2.dp,
+                                label = "dragElevation"
+                            )
+
+                            Card(
                                 Modifier
-                                    .padding(horizontal = 8.dp, vertical = 6.dp)
-                                    .fillMaxWidth(),
-                                verticalAlignment = Alignment.CenterVertically
+                                    .fillMaxWidth()
+                                    .then(
+                                        if (isDragging) Modifier.background(
+                                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                            RoundedCornerShape(12.dp)
+                                        ) else Modifier
+                                    ),
+                                elevation = CardDefaults.cardElevation(elevation),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surface
+                                )
                             ) {
-                                // Move buttons
-                                Column {
-                                    IconButton(
-                                        onClick = {
-                                            if (index > 0) {
-                                                val ml = editableIds.toMutableList()
-                                                val temp = ml[index]
-                                                ml[index] = ml[index - 1]
-                                                ml[index - 1] = temp
-                                                editableIds = ml
-                                            }
-                                        },
-                                        modifier = Modifier.size(28.dp),
-                                        enabled = index > 0
-                                    ) {
-                                        Icon(
-                                            Icons.Default.ArrowUpward, "Move up",
-                                            Modifier.size(18.dp),
-                                            tint = if (index > 0) MaterialTheme.colorScheme.primary
-                                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                                        )
-                                    }
-                                    IconButton(
-                                        onClick = {
-                                            if (index < editableIds.size - 1) {
-                                                val ml = editableIds.toMutableList()
-                                                val temp = ml[index]
-                                                ml[index] = ml[index + 1]
-                                                ml[index + 1] = temp
-                                                editableIds = ml
-                                            }
-                                        },
-                                        modifier = Modifier.size(28.dp),
-                                        enabled = index < editableIds.size - 1
-                                    ) {
-                                        Icon(
-                                            Icons.Default.ArrowDownward, "Move down",
-                                            Modifier.size(18.dp),
-                                            tint = if (index < editableIds.size - 1) MaterialTheme.colorScheme.primary
-                                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                                        )
-                                    }
-                                }
-
-                                Spacer(Modifier.width(8.dp))
-
-                                Column(Modifier.weight(1f)) {
-                                    Text(
-                                        song.title,
-                                        fontWeight = FontWeight.Bold,
-                                        fontSize = 14.sp,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                        color = MaterialTheme.colorScheme.onSurface
-                                    )
-                                    Text(
-                                        "${song.artist} • ${formatDuration(song.duration)}",
-                                        fontSize = 12.sp,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-
-                                // Remove button
-                                IconButton(
-                                    onClick = {
-                                        editableIds = editableIds.toMutableList().also { it.removeAt(index) }
-                                    },
-                                    modifier = Modifier.size(32.dp)
+                                Row(
+                                    Modifier
+                                        .padding(horizontal = 8.dp, vertical = 6.dp)
+                                        .fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(
-                                        Icons.Default.RemoveCircleOutline, "Remove",
-                                        tint = MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.size(22.dp)
-                                    )
+                                    // Drag handle
+                                    IconButton(
+                                        onClick = {},
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .draggableHandle()
+                                    ) {
+                                        Icon(
+                                            Icons.Default.DragHandle,
+                                            "Drag to reorder",
+                                            Modifier.size(24.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+
+                                    Spacer(Modifier.width(8.dp))
+
+                                    // Song info
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            song.title,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Text(
+                                            "${song.artist} • ${formatDuration(song.duration)}",
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
+
+                                    // Remove button
+                                    IconButton(
+                                        onClick = {
+                                            editableIds = editableIds.toMutableList().also {
+                                                it.removeAt(index)
+                                            }
+                                        },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.RemoveCircleOutline,
+                                            "Remove",
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(22.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
                     }
                 }
             } else {
+                // Normal playback mode
                 LazyColumn(
                     Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(8.dp),

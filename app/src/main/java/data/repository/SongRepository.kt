@@ -27,7 +27,8 @@ fun fetchSongs(ctx: Context): ImmutableList<Song> {
             MediaStore.Audio.Media.ALBUM,
             MediaStore.Audio.Media.DURATION,
             MediaStore.Audio.Media.ALBUM_ID,
-            MediaStore.Audio.Media.DATA
+            MediaStore.Audio.Media.DATA,
+            MediaStore.Audio.Media.DATE_ADDED
         )
         val hasRP = Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q
         if (hasRP) proj.add(MediaStore.Audio.Media.RELATIVE_PATH)
@@ -43,6 +44,7 @@ fun fetchSongs(ctx: Context): ImmutableList<Song> {
             val durC = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
             val albIdC = c.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
             val dataC = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
+            val dateAddedC = c.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_ADDED)
             val rpC = if (hasRP) c.getColumnIndex(MediaStore.Audio.Media.RELATIVE_PATH) else -1
 
             while (c.moveToNext()) {
@@ -54,6 +56,7 @@ fun fetchSongs(ctx: Context): ImmutableList<Song> {
                     val dur = c.getInt(durC)
                     val albId = c.getLong(albIdC)
                     val path = c.getString(dataC) ?: ""
+                    val dateAdded = c.getLong(dateAddedC)
 
                     val folder = if (rpC >= 0) {
                         val rp = c.getString(rpC) ?: ""
@@ -78,9 +81,21 @@ fun fetchSongs(ctx: Context): ImmutableList<Song> {
                         null
                     }
 
-                    songs.add(Song(id, title, artist, album, dur, uri, artUri, folder))
+                    songs.add(
+                        Song(
+                            id = id,
+                            title = title,
+                            artist = artist,
+                            album = album,
+                            duration = dur,
+                            uri = uri,
+                            albumArtUri = artUri,
+                            folder = folder,
+                            dateAdded = dateAdded
+                        )
+                    )
                 } catch (_: Exception) {
-                    // skip
+
                 }
             }
         }
