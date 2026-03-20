@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material3.AlertDialog
@@ -213,6 +214,23 @@ fun MainScreen(
         }
     }
 
+    // Refresh songs function
+    val onRefreshSongs: () -> Unit = {
+        if (hasPermission) {
+            isLoading = true
+            scope.launch {
+                songs = withContext(Dispatchers.IO) { fetchSongs(ctx) }
+                playCounts = loadPlayCounts(prefs)
+                recentlyPlayedIds = loadRecentlyPlayed(prefs).map { it.songId }
+                isLoading = false
+                snackbarHostState.showSnackbar("Library refreshed — ${songs.size} songs found")
+            }
+        }
+    }
+
+    // Batch add handler
+    val onBatchAdd: (Set<Long>) -> Unit = { ids -> showBatchPlaylistPicker = ids }
+
     var selectedTabIndex by remember { mutableIntStateOf(0) }
     val tabs = listOf("Songs", "Playlists", "Folder", "Favorites", "Album", "Artist", "Recent", "Top")
     var selectedFolder by remember { mutableStateOf<String?>(null) }
@@ -263,7 +281,6 @@ fun MainScreen(
         }
     }
 
-    // Load play history when songs are available
     LaunchedEffect(songs) {
         if (songs.isNotEmpty()) {
             playCounts = loadPlayCounts(prefs)
@@ -271,7 +288,6 @@ fun MainScreen(
         }
     }
 
-    // Refresh play counts when returning from now playing or when song changes
     LaunchedEffect(currentSong) {
         if (songs.isNotEmpty()) {
             playCounts = loadPlayCounts(prefs)
@@ -406,6 +422,13 @@ fun MainScreen(
                             )
                         },
                         actions = {
+                            IconButton(onClick = onRefreshSongs) {
+                                Icon(
+                                    Icons.Default.Refresh,
+                                    "Refresh library",
+                                    tint = MaterialTheme.colorScheme.onBackground
+                                )
+                            }
                             IconButton(onClick = { isSearchActive = true }) {
                                 Icon(
                                     Icons.Default.Search,
@@ -535,7 +558,7 @@ fun MainScreen(
                                     onShuffleToggle, onReshuffle, toggleFav, onSongSelected,
                                     onFindSongs, onAddToQueue, snackbarHostState, scope,
                                     playCounts = playCounts,
-                                    onBatchAddToPlaylist = { ids -> showBatchPlaylistPicker = ids }
+                                    onBatchAddToPlaylist = onBatchAdd
                                 )
                                 1 -> PlaylistsTab(
                                     playlists, songs, currentSong, selectedPlaylist,
@@ -560,12 +583,13 @@ fun MainScreen(
                                     { it.folder == selectedFolder }, favoriteIds, isShuffleEnabled,
                                     onShuffleToggle, onReshuffle, toggleFav, onSongSelected,
                                     onFindSongs, currentSong, onAddToQueue, snackbarHostState, scope,
-                                    playCounts
+                                    playCounts, onBatchAddToPlaylist = onBatchAdd
                                 )
                                 3 -> FavoritesTab(
                                     songs, favoriteIds, isShuffleEnabled, currentSong,
                                     onShuffleToggle, onReshuffle, toggleFav, onSongSelected,
-                                    onAddToQueue, snackbarHostState, scope, playCounts
+                                    onAddToQueue, snackbarHostState, scope, playCounts,
+                                    onBatchAddToPlaylist = onBatchAdd
                                 )
                                 4 -> GroupedTab(
                                     albums, isLoading, Icons.Default.Album, selectedAlbum,
@@ -573,7 +597,7 @@ fun MainScreen(
                                     { it.album == selectedAlbum }, favoriteIds, isShuffleEnabled,
                                     onShuffleToggle, onReshuffle, toggleFav, onSongSelected,
                                     onFindSongs, currentSong, onAddToQueue, snackbarHostState, scope,
-                                    playCounts
+                                    playCounts, onBatchAddToPlaylist = onBatchAdd
                                 )
                                 5 -> GroupedTab(
                                     artists, isLoading, Icons.Default.Person, selectedArtist,
@@ -581,10 +605,9 @@ fun MainScreen(
                                     { it.artist == selectedArtist }, favoriteIds, isShuffleEnabled,
                                     onShuffleToggle, onReshuffle, toggleFav, onSongSelected,
                                     onFindSongs, currentSong, onAddToQueue, snackbarHostState, scope,
-                                    playCounts
+                                    playCounts, onBatchAddToPlaylist = onBatchAdd
                                 )
                                 6 -> {
-                                    // Recently Played tab
                                     val recentSongs = remember(songs, recentlyPlayedIds) {
                                         recentlyPlayedIds.mapNotNull { id ->
                                             songs.find { it.id == id }
@@ -594,11 +617,11 @@ fun MainScreen(
                                         recentSongs, isLoading, isShuffleEnabled, currentSong,
                                         favoriteIds, onShuffleToggle, onReshuffle, toggleFav,
                                         onSongSelected, {}, onAddToQueue, snackbarHostState, scope,
-                                        playCounts = playCounts
+                                        playCounts = playCounts,
+                                        onBatchAddToPlaylist = onBatchAdd
                                     )
                                 }
                                 7 -> {
-                                    // Most Played tab
                                     val topSongs = remember(songs, playCounts) {
                                         songs.filter { (playCounts[it.id] ?: 0) > 0 }
                                             .sortedByDescending { playCounts[it.id] ?: 0 }
@@ -608,7 +631,8 @@ fun MainScreen(
                                         topSongs, isLoading, isShuffleEnabled, currentSong,
                                         favoriteIds, onShuffleToggle, onReshuffle, toggleFav,
                                         onSongSelected, {}, onAddToQueue, snackbarHostState, scope,
-                                        playCounts = playCounts
+                                        playCounts = playCounts,
+                                        onBatchAddToPlaylist = onBatchAdd
                                     )
                                 }
                             }

@@ -16,11 +16,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -70,7 +76,8 @@ fun GroupedTab(
     onAddToQueue: (Song) -> Unit,
     snackbarHostState: SnackbarHostState,
     scope: CoroutineScope,
-    playCounts: Map<Long, Int> = emptyMap()
+    playCounts: Map<Long, Int> = emptyMap(),
+    onBatchAddToPlaylist: ((Set<Long>) -> Unit)? = null
 ) {
     if (selectedItem == null) {
         Column(Modifier.fillMaxSize()) {
@@ -82,7 +89,13 @@ fun GroupedTab(
                     CircularProgressIndicator()
                 }
             } else if (items.isEmpty()) {
-                EmptyState(icon = icon, title = "Nothing here yet", subtitle = "Scan your device to find music", actionLabel = "Scan Device for Music", onAction = onFindSongs)
+                EmptyState(
+                    icon = icon,
+                    title = "Nothing here yet",
+                    subtitle = "Scan your device to find music",
+                    actionLabel = "Scan Device for Music",
+                    onAction = onFindSongs
+                )
             } else {
                 LazyColumn(
                     Modifier.fillMaxSize(),
@@ -90,13 +103,18 @@ fun GroupedTab(
                     contentPadding = PaddingValues(bottom = 24.dp)
                 ) {
                     items(items = items) { (name, count) ->
-                        GroupItem(name = name, count = count, icon = icon, onClick = { onItemClick(name) })
+                        GroupItem(
+                            name = name, count = count, icon = icon,
+                            onClick = { onItemClick(name) }
+                        )
                     }
                 }
             }
         }
     } else {
         var sortOption by remember { mutableStateOf(SortOption.NAME_ASC) }
+        var isBatchMode by remember { mutableStateOf(false) }
+        var selectedIds by remember { mutableStateOf(setOf<Long>()) }
 
         val groupSongs: ImmutableList<Song> by remember(songs, selectedItem, sortOption, playCounts) {
             derivedStateOf {
@@ -106,6 +124,7 @@ fun GroupedTab(
         }
 
         Column(Modifier.fillMaxSize()) {
+            // Header
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -120,12 +139,25 @@ fun GroupedTab(
                         .padding(8.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = MaterialTheme.colorScheme.onBackground)
+                    Icon(
+                        Icons.AutoMirrored.Filled.ArrowBack, "Back",
+                        tint = MaterialTheme.colorScheme.onBackground
+                    )
                     Spacer(Modifier.width(8.dp))
                     Column {
-                        Text(selectedItem, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onBackground)
+                        Text(
+                            selectedItem,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            color = MaterialTheme.colorScheme.onBackground
+                        )
                         if (groupSongs.isNotEmpty()) {
-                            Text("${groupSongs.size} songs • ${formatTotalDuration(groupSongs)}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                "${groupSongs.size} songs • ${formatTotalDuration(groupSongs)}",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
                         }
                     }
                 }
@@ -133,8 +165,66 @@ fun GroupedTab(
 
             if (groupSongs.isNotEmpty()) {
                 EnhancedShuffleToggle(isShuffleEnabled, onShuffleToggle, onReshuffle)
-                Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    SortDropdown(currentSort = sortOption, showPlayCount = playCounts.isNotEmpty()) { sortOption = it }
+
+                // Sort + Batch row
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    SortDropdown(
+                        currentSort = sortOption,
+                        showPlayCount = playCounts.isNotEmpty()
+                    ) { sortOption = it }
+
+                    if (isBatchMode) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            TextButton(onClick = {
+                                selectedIds = if (selectedIds.size == groupSongs.size) emptySet()
+                                else groupSongs.map { it.id }.toSet()
+                            }) {
+                                Icon(Icons.Default.SelectAll, null, Modifier.padding(end = 4.dp))
+                                Text(
+                                    if (selectedIds.size == groupSongs.size) "Deselect" else "All",
+                                    fontSize = 12.sp
+                                )
+                            }
+                            if (selectedIds.isNotEmpty() && onBatchAddToPlaylist != null) {
+                                IconButton(onClick = {
+                                    onBatchAddToPlaylist(selectedIds)
+                                    isBatchMode = false
+                                    selectedIds = emptySet()
+                                }) {
+                                    Icon(
+                                        Icons.Default.PlaylistAdd, "Add to playlist",
+                                        tint = MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                            IconButton(onClick = { isBatchMode = false; selectedIds = emptySet() }) {
+                                Icon(Icons.Default.Close, "Cancel")
+                            }
+                        }
+                    } else if (onBatchAddToPlaylist != null) {
+                        IconButton(onClick = { isBatchMode = true }) {
+                            Icon(
+                                Icons.Default.Checklist, "Batch select",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                if (isBatchMode && selectedIds.isNotEmpty()) {
+                    Text(
+                        "${selectedIds.size} selected",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                    )
                 }
             }
 
@@ -154,6 +244,12 @@ fun GroupedTab(
                         onAddToQueue = { qSong ->
                             onAddToQueue(qSong)
                             scope.launch { snackbarHostState.showSnackbar("Added to queue") }
+                        },
+                        isBatchMode = isBatchMode,
+                        isSelected = selectedIds.contains(song.id),
+                        onBatchToggle = { id ->
+                            selectedIds = if (selectedIds.contains(id)) selectedIds - id
+                            else selectedIds + id
                         }
                     )
                 }
