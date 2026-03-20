@@ -81,6 +81,7 @@ import com.example.musicplayerdeck.data.repository.loadPlayCounts
 import com.example.musicplayerdeck.data.repository.loadPlaylists
 import com.example.musicplayerdeck.data.repository.loadRecentlyPlayed
 import com.example.musicplayerdeck.data.repository.savePlaylists
+import com.example.musicplayerdeck.data.repository.syncPlaylistsWithFolders
 import com.example.musicplayerdeck.ui.components.MiniPlayer
 import com.example.musicplayerdeck.ui.components.SwipeableSongItem
 import com.example.musicplayerdeck.ui.screens.tabs.FavoritesTab
@@ -138,14 +139,10 @@ fun MainScreen(
     var isCreatingPlaylist by remember { mutableStateOf(false) }
     var isNowPlayingOpen by remember { mutableStateOf(false) }
 
-    // Play tracking
     var playCounts by remember { mutableStateOf<Map<Long, Int>>(emptyMap()) }
     var recentlyPlayedIds by remember { mutableStateOf<List<Long>>(emptyList()) }
-
-    // Batch add to playlist
     var showBatchPlaylistPicker by remember { mutableStateOf<Set<Long>?>(null) }
 
-    // Global search
     var isSearchActive by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var debouncedSearch by remember { mutableStateOf("") }
@@ -214,7 +211,6 @@ fun MainScreen(
         }
     }
 
-    // Refresh songs function
     val onRefreshSongs: () -> Unit = {
         if (hasPermission) {
             isLoading = true
@@ -222,13 +218,22 @@ fun MainScreen(
                 songs = withContext(Dispatchers.IO) { fetchSongs(ctx) }
                 playCounts = loadPlayCounts(prefs)
                 recentlyPlayedIds = loadRecentlyPlayed(prefs).map { it.songId }
+
+                // Auto-sync playlists with linked folders
+                val (synced, addedCount) = syncPlaylistsWithFolders(playlists, songs)
+                if (addedCount > 0) {
+                    playlists = synced
+                    savePlaylists(prefs, playlists)
+                }
+
                 isLoading = false
-                snackbarHostState.showSnackbar("Library refreshed — ${songs.size} songs found")
+
+                val syncMsg = if (addedCount > 0) " • $addedCount songs auto-added to playlists" else ""
+                snackbarHostState.showSnackbar("Library refreshed — ${songs.size} songs$syncMsg")
             }
         }
     }
 
-    // Batch add handler
     val onBatchAdd: (Set<Long>) -> Unit = { ids -> showBatchPlaylistPicker = ids }
 
     var selectedTabIndex by remember { mutableIntStateOf(0) }
@@ -311,7 +316,7 @@ fun MainScreen(
                                 .fillMaxWidth()
                                 .clickable {
                                     val newIds = (pl.songIds + batchIds.toList()).distinct().toImmutableList()
-                                    val updated = Playlist(pl.name, newIds)
+                                    val updated = pl.copy(songIds = newIds)
                                     playlists = playlists.map {
                                         if (it.name == pl.name) updated else it
                                     }.toImmutableList()
@@ -367,8 +372,12 @@ fun MainScreen(
             allSongs = songs,
             folders = folders,
             onDismiss = { isCreatingPlaylist = false },
-            onSave = { name, ids ->
-                val newPlaylist = Playlist(name, ids.toList().toImmutableList())
+            onSave = { name, ids, sourceFolders ->
+                val newPlaylist = Playlist(
+                    name = name,
+                    songIds = ids.toList().toImmutableList(),
+                    sourceFolders = sourceFolders.toList().toImmutableList()
+                )
                 playlists = (playlists + newPlaylist).toImmutableList()
                 savePlaylists(prefs, playlists)
                 isCreatingPlaylist = false

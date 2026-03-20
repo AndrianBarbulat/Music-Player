@@ -3,6 +3,7 @@ package com.example.musicplayerdeck.data.repository
 import android.content.SharedPreferences
 import androidx.core.content.edit
 import com.example.musicplayerdeck.data.model.Playlist
+import com.example.musicplayerdeck.data.model.Song
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
@@ -17,6 +18,11 @@ fun savePlaylists(prefs: SharedPreferences, pls: ImmutableList<Playlist>) {
         val ids = JSONArray()
         for (id in p.songIds) ids.put(id)
         o.put("songIds", ids)
+        if (p.sourceFolders.isNotEmpty()) {
+            val folders = JSONArray()
+            for (f in p.sourceFolders) folders.put(f)
+            o.put("sourceFolders", folders)
+        }
         ja.put(o)
     }
     prefs.edit {
@@ -46,10 +52,54 @@ fun loadPlaylists(prefs: SharedPreferences): ImmutableList<Playlist> {
             for (j in 0 until ids.length()) {
                 idList.add(ids.getLong(j))
             }
-            result.add(Playlist(o.getString("name"), idList.toImmutableList()))
+            val sourceFolders = if (o.has("sourceFolders")) {
+                val fa = o.getJSONArray("sourceFolders")
+                val fl = mutableListOf<String>()
+                for (j in 0 until fa.length()) {
+                    fl.add(fa.getString(j))
+                }
+                fl.toImmutableList()
+            } else {
+                persistentListOf()
+            }
+            result.add(
+                Playlist(
+                    name = o.getString("name"),
+                    songIds = idList.toImmutableList(),
+                    sourceFolders = sourceFolders
+                )
+            )
         }
         result.toImmutableList()
     } catch (_: Exception) {
         persistentListOf()
     }
+}
+
+fun syncPlaylistsWithFolders(
+    playlists: ImmutableList<Playlist>,
+    songs: ImmutableList<Song>
+): Pair<ImmutableList<Playlist>, Int> {
+    var totalAdded = 0
+    val updated = playlists.map { playlist ->
+        if (playlist.sourceFolders.isEmpty()) {
+            playlist
+        } else {
+            val folderSongIds = songs
+                .filter { it.folder in playlist.sourceFolders }
+                .map { it.id }
+                .toSet()
+            val existingIds = playlist.songIds.toSet()
+            val newIds = folderSongIds - existingIds
+            if (newIds.isNotEmpty()) {
+                totalAdded += newIds.size
+                playlist.copy(
+                    songIds = (playlist.songIds + newIds.toList()).toImmutableList()
+                )
+            } else {
+                playlist
+            }
+        }
+    }.toImmutableList()
+    return Pair(updated, totalAdded)
 }

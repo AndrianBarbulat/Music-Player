@@ -16,12 +16,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
@@ -64,12 +66,13 @@ fun CreatePlaylistScreen(
     allSongs: ImmutableList<Song>,
     folders: ImmutableList<Pair<String, Int>>,
     onDismiss: () -> Unit,
-    onSave: (String, Set<Long>) -> Unit
+    onSave: (String, Set<Long>, Set<String>) -> Unit
 ) {
     var name by remember { mutableStateOf("") }
     var query by remember { mutableStateOf("") }
     var dq by remember { mutableStateOf("") }
     var selected by remember { mutableStateOf(setOf<Long>()) }
+    var selectedFolders by remember { mutableStateOf(setOf<String>()) }
 
     LaunchedEffect(query) { delay(300); dq = query }
 
@@ -167,10 +170,21 @@ fun CreatePlaylistScreen(
                     if (showFD) {
                         AlertDialog(
                             onDismissRequest = { showFD = false },
-                            title = { Text("Select Folder", fontWeight = FontWeight.Bold) },
+                            title = {
+                                Column {
+                                    Text("Select Folder", fontWeight = FontWeight.Bold)
+                                    Text(
+                                        "New songs added to these folders will auto-sync",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(top = 4.dp)
+                                    )
+                                }
+                            },
                             text = {
                                 LazyColumn {
                                     items(items = folders) { (fn, c) ->
+                                        val isFolderSelected = selectedFolders.contains(fn)
                                         Row(
                                             Modifier
                                                 .fillMaxWidth()
@@ -180,6 +194,7 @@ fun CreatePlaylistScreen(
                                                         .map { it.id }
                                                         .toSet()
                                                     selected = selected + folderSongIds
+                                                    selectedFolders = selectedFolders + fn
                                                     showFD = false
                                                 }
                                                 .padding(16.dp),
@@ -187,24 +202,70 @@ fun CreatePlaylistScreen(
                                         ) {
                                             Icon(
                                                 Icons.Default.Folder, null,
-                                                tint = MaterialTheme.colorScheme.primary
+                                                tint = if (isFolderSelected) MaterialTheme.colorScheme.primary
+                                                else MaterialTheme.colorScheme.onSurfaceVariant
                                             )
                                             Spacer(Modifier.width(16.dp))
-                                            Text(
-                                                "$fn ($c songs)",
-                                                color = MaterialTheme.colorScheme.onSurface,
-                                                fontWeight = FontWeight.Medium
-                                            )
+                                            Column(Modifier.weight(1f)) {
+                                                Text(
+                                                    fn,
+                                                    color = MaterialTheme.colorScheme.onSurface,
+                                                    fontWeight = FontWeight.Medium
+                                                )
+                                                Text(
+                                                    "$c songs",
+                                                    fontSize = 12.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                            if (isFolderSelected) {
+                                                Icon(
+                                                    Icons.Default.CheckCircle, "Added",
+                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
                                         }
                                     }
                                 }
                             },
                             confirmButton = {
                                 TextButton(onClick = { showFD = false }) {
-                                    Text("Cancel", fontWeight = FontWeight.Bold)
+                                    Text("Done", fontWeight = FontWeight.Bold)
                                 }
                             }
                         )
+                    }
+                }
+
+                // Show linked folders
+                if (selectedFolders.isNotEmpty()) {
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 4.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            Icons.Default.Folder, null,
+                            Modifier.size(14.dp),
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            "Auto-sync: ${selectedFolders.joinToString(", ")}",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        TextButton(
+                            onClick = { selectedFolders = emptySet() },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
+                        ) {
+                            Text("Clear", fontSize = 11.sp)
+                        }
                     }
                 }
 
@@ -263,7 +324,9 @@ fun CreatePlaylistScreen(
                 Spacer(Modifier.height(8.dp))
 
                 Button(
-                    onClick = { if (name.isNotBlank()) onSave(name, selected) },
+                    onClick = {
+                        if (name.isNotBlank()) onSave(name, selected, selectedFolders)
+                    },
                     modifier = Modifier.fillMaxWidth(),
                     contentPadding = PaddingValues(16.dp),
                     enabled = name.isNotBlank() && selected.isNotEmpty()
