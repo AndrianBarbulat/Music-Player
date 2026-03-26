@@ -1,11 +1,3 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.App.Starting" parent="Theme.SplashScreen">
-        <!-- Dark mode background -->
-        <item name="windowSplashScreenBackground">#064E3B</item>
-        <!-- Use the app icon as the logo -->
-        <item name="windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
-        <!-- Set the theme of the Activity that directly follows the splash screen -->
-        <item name="postSplashScreenTheme">@style/Theme.MusicPlayerDeck</item>
-    </style>
 </resources>

@@ -2,6 +2,7 @@ package com.example.musicplayerdeck
 
 import android.content.ComponentName
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -24,12 +25,17 @@ class MainActivity : ComponentActivity() {
     private val vm: MusicPlayerViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        installSplashScreen()
+        Log.d("STARTUP", "onCreate start")
+        val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
         val prefs = getSharedPreferences("MusicPlayerDeckPrefs", MODE_PRIVATE)
         vm.initialize(prefs)
+        // Hold the splash until the initial song scan finishes — user sees logo, not a blank screen
+        splashScreen.setKeepOnScreenCondition { vm.isSongsLoading }
         enableEdgeToEdge()
+        Log.d("STARTUP", "before setContent")
         setContent {
+            Log.d("STARTUP", "setContent called")
             MusicPlayerDeckTheme {
                 val onSong: (Song, ImmutableList<Song>) -> Unit = remember {
                     { s: Song, p: ImmutableList<Song> -> vm.playSong(s, p) }
@@ -43,6 +49,9 @@ class MainActivity : ComponentActivity() {
                 val onQueue: (Song) -> Unit = remember { { s: Song -> vm.addToQueue(s) } }
 
                 MainScreen(
+                    songs = vm.songs,
+                    isLoading = vm.isSongsLoading,
+                    onLoadSongs = { vm.loadSongs(prefs) },
                     currentSong = vm.currentSong,
                     isPlaying = vm.isPlaying,
                     isShuffleEnabled = vm.isShuffleEnabled,

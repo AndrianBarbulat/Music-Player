@@ -1,13 +1,17 @@
 package com.example.musicplayerdeck.viewmodel
 
+import android.Manifest
+import android.app.Application
 import android.content.SharedPreferences
+import android.os.Build
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.core.content.ContextCompat
 import androidx.core.content.edit
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
@@ -15,18 +19,26 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import com.example.musicplayerdeck.data.model.Song
+import com.example.musicplayerdeck.data.repository.fetchSongs
 import com.example.musicplayerdeck.data.repository.recordPlay
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
-class MusicPlayerViewModel : ViewModel() {
+class MusicPlayerViewModel(app: Application) : AndroidViewModel(app) {
     private var controller: MediaController? = null
     private var playerListener: Player.Listener? = null
     private val pendingActions = mutableListOf<(MediaController) -> Unit>()
     private var currentPrefs: SharedPreferences? = null
+
+    var songs by mutableStateOf<ImmutableList<Song>>(persistentListOf())
+        private set
+    var isSongsLoading by mutableStateOf(false)
+        private set
 
     var currentSong by mutableStateOf<Song?>(null)
         private set
@@ -46,6 +58,10 @@ class MusicPlayerViewModel : ViewModel() {
     fun initialize(prefs: SharedPreferences) {
         currentPrefs = prefs
         isShuffleEnabled = prefs.getBoolean("shuffle_enabled", false)
+        // Start loading songs immediately (before setContent) if permission already granted
+        if (prefs.getBoolean("songs_loaded", false) && hasAudioPermission()) {
+            loadSongs(prefs)
+        }
         viewModelScope.launch {
             while (true) {
                 if (isPlaying) {
@@ -53,6 +69,28 @@ class MusicPlayerViewModel : ViewModel() {
                 }
                 delay(if (isPlaying) 250 else 1000)
             }
+        }
+    }
+
+    fun loadSongs(prefs: SharedPreferences) {
+        if (isSongsLoading) return
+        isSongsLoading = true
+        viewModelScope.launch {
+            val loaded = withContext(Dispatchers.IO) { fetchSongs(getApplication()) }
+            songs = loaded
+            prefs.edit { putBoolean("songs_loaded", true) }
+            isSongsLoading = false
+        }
+    }
+
+    private fun hasAudioPermission(): Boolean {
+        val ctx = getApplication<Application>()
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_MEDIA_AUDIO) ==
+                    android.content.pm.PackageManager.PERMISSION_GRANTED
+        } else {
+            ContextCompat.checkSelfPermission(ctx, Manifest.permission.READ_EXTERNAL_STORAGE) ==
+                    android.content.pm.PackageManager.PERMISSION_GRANTED
         }
     }
 

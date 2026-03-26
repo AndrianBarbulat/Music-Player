@@ -74,7 +74,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import com.example.musicplayerdeck.data.model.Playlist
 import com.example.musicplayerdeck.data.model.Song
-import com.example.musicplayerdeck.data.repository.fetchSongs
+import android.util.Log
 import com.example.musicplayerdeck.data.repository.loadPlayCounts
 import com.example.musicplayerdeck.data.repository.loadPlaylists
 import com.example.musicplayerdeck.data.repository.loadRecentlyPlayed
@@ -106,6 +106,9 @@ import kotlinx.coroutines.withContext
 
 @Composable
 fun MainScreen(
+    songs: ImmutableList<Song>,
+    isLoading: Boolean,
+    onLoadSongs: () -> Unit,
     currentSong: Song?,
     isPlaying: Boolean,
     isShuffleEnabled: Boolean,
@@ -121,13 +124,12 @@ fun MainScreen(
     onSeek: (Long) -> Unit,
     onAddToQueue: (Song) -> Unit
 ) {
+    Log.d("STARTUP", "MainScreen composing")
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val prefs = remember { ctx.getSharedPreferences("MusicPlayerDeckPrefs", Context.MODE_PRIVATE) }
     val snackbarHostState = remember { SnackbarHostState() }
 
-    var songs by remember { mutableStateOf<ImmutableList<Song>>(persistentListOf()) }
-    var isLoading by remember { mutableStateOf(false) }
     var hasPermission by remember {
         mutableStateOf(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -192,23 +194,13 @@ fun MainScreen(
             ?: false
         hasPermission = granted
         if (granted) {
-            isLoading = true
-            scope.launch {
-                songs = withContext(Dispatchers.IO) { fetchSongs(ctx) }
-                prefs.edit { putBoolean("songs_loaded", true) }
-                isLoading = false
-            }
+            onLoadSongs()
         }
     }
 
     val onFindSongs: () -> Unit = {
         if (hasPermission) {
-            isLoading = true
-            scope.launch {
-                songs = withContext(Dispatchers.IO) { fetchSongs(ctx) }
-                prefs.edit { putBoolean("songs_loaded", true) }
-                isLoading = false
-            }
+            onLoadSongs()
         } else {
             val permsToReq = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 arrayOf(Manifest.permission.READ_MEDIA_AUDIO, Manifest.permission.POST_NOTIFICATIONS)
@@ -219,26 +211,12 @@ fun MainScreen(
         }
     }
 
+    var isRefreshPending by remember { mutableStateOf(false) }
+
     val onRefreshSongs: () -> Unit = {
         if (hasPermission) {
-            isLoading = true
-            scope.launch {
-                songs = withContext(Dispatchers.IO) { fetchSongs(ctx) }
-                playCounts = loadPlayCounts(prefs)
-                recentlyPlayedIds = loadRecentlyPlayed(prefs).map { it.songId }
-
-                // Auto-sync playlists with linked folders
-                val (synced, addedCount) = syncPlaylistsWithFolders(playlists, songs)
-                if (addedCount > 0) {
-                    playlists = synced
-                    savePlaylists(prefs, playlists)
-                }
-
-                isLoading = false
-
-                val syncMsg = if (addedCount > 0) " • $addedCount songs auto-added to playlists" else ""
-                snackbarHostState.showSnackbar("Library refreshed — ${songs.size} songs$syncMsg")
-            }
+            isRefreshPending = true
+            onLoadSongs()
         }
     }
 
@@ -301,25 +279,25 @@ fun MainScreen(
         selectedPlaylist = null
     }
 
-    LaunchedEffect(hasPermission) {
-        if (hasPermission && prefs.getBoolean("songs_loaded", false)) {
-            isLoading = true
-            songs = withContext(Dispatchers.IO) { fetchSongs(ctx) }
-            isLoading = false
+    // Reload play history whenever the song list or current song changes
+    LaunchedEffect(songs, currentSong) {
+        if (songs.isNotEmpty()) {
+            playCounts = withContext(Dispatchers.IO) { loadPlayCounts(prefs) }
+            recentlyPlayedIds = withContext(Dispatchers.IO) { loadRecentlyPlayed(prefs).map { it.songId } }
         }
     }
 
-    LaunchedEffect(songs) {
-        if (songs.isNotEmpty()) {
-            playCounts = loadPlayCounts(prefs)
-            recentlyPlayedIds = loadRecentlyPlayed(prefs).map { it.songId }
-        }
-    }
-
-    LaunchedEffect(currentSong) {
-        if (songs.isNotEmpty()) {
-            playCounts = loadPlayCounts(prefs)
-            recentlyPlayedIds = loadRecentlyPlayed(prefs).map { it.songId }
+    // When a user-triggered refresh finishes loading, sync playlists and show the snackbar
+    LaunchedEffect(isLoading) {
+        if (!isLoading && isRefreshPending && songs.isNotEmpty()) {
+            isRefreshPending = false
+            val (synced, addedCount) = syncPlaylistsWithFolders(playlists, songs)
+            if (addedCount > 0) {
+                playlists = synced
+                savePlaylists(prefs, playlists)
+            }
+            val syncMsg = if (addedCount > 0) " • $addedCount songs auto-added to playlists" else ""
+            snackbarHostState.showSnackbar("Library refreshed — ${songs.size} songs$syncMsg")
         }
     }
 
