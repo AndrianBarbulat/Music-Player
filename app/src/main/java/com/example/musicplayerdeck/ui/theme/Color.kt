@@ -1,29 +1,24 @@
 package com.example.musicplayerdeck.ui.theme
 
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 
-val Mint80 = Color(0xFFD1FAE5)
-val MintGrey80 = Color(0xFFB1D8C4)
-val MintAccent80 = Color(0xFFA7F3D0)
+// ── Backgrounds (darkest → lightest) ──────────────────────────────────────
+val AppBackground    = Color(0xFF090C10)  // main app background, deepest layer
+val AppSurface       = Color(0xFF0F1318)  // content areas, lists
+val AppCard          = Color(0xFF161C24)  // cards, bottom sheets, elevated surfaces
+val AppElevated      = Color(0xFF1E2733)  // album art placeholders, input fields, pressed states
 
-val Mint40 = Color(0xFF10B981)
-val MintGrey40 = Color(0xFF065F46)
-val MintAccent40 = Color(0xFF047857)
+// ── Accent ────────────────────────────────────────────────────────────────
+val TealPrimary      = Color(0xFF7BA59A)  // active states, highlights, playing indicator
+val TealPrimaryDark  = Color(0xFF5D8A7E)  // active song artist text, subtle accents
+val TealPrimaryFaint = Color(0x1F7BA59A)  // 12% opacity — tinted bg for active/selected rows
 
-val DarkMint = Color(0xFF064E3B)
-val LightMint = Color(0xFFECFDF5)
+// ── Text ──────────────────────────────────────────────────────────────────
+val TextPrimary      = Color(0xFFE8ECF0)  // song titles, headings
+val TextSecondary    = Color(0xFF8A96A6)  // artist names, labels, metadata
+val TextMuted        = Color(0xFF5A6678)  // timestamps, hints, inactive tabs, disabled
+val TextFaint        = Color(0xFF4A5568)  // duration, tertiary info
 
-val MintGradient = Brush.verticalGradient(
-    colors = listOf(
-        Color(0xFFD1FAE5),
-        Color(0xFF6EE7B7)
-    )
-)
-
-val DarkMintGradient = Brush.verticalGradient(
-    colors = listOf(
-        Color(0xFF065F46),
-        Color(0xFF064E3B)
-    )
-)
+// ── Borders & dividers ────────────────────────────────────────────────────
+val DividerColor      = Color(0xFF1A2030)  // subtle horizontal dividers between rows
+val DividerLightColor = Color(0xFF2A3444)  // section separators

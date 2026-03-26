@@ -3,7 +3,6 @@ package com.example.musicplayerdeck.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -14,30 +13,22 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,10 +36,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.musicplayerdeck.data.model.Song
-import com.example.musicplayerdeck.util.formatDuration
-import com.example.musicplayerdeck.util.formatDurationLong
+import com.example.musicplayerdeck.ui.theme.AppElevated
+import com.example.musicplayerdeck.ui.theme.AppSurface
+import com.example.musicplayerdeck.ui.theme.DividerColor
+import com.example.musicplayerdeck.ui.theme.TealPrimary
+import com.example.musicplayerdeck.ui.theme.TextMuted
+import com.example.musicplayerdeck.ui.theme.TextPrimary
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MiniPlayer(
     song: Song,
@@ -61,91 +55,98 @@ fun MiniPlayer(
     onTap: () -> Unit
 ) {
     val pos = playbackPositionProvider()
-    var isDragging by remember { mutableStateOf(false) }
-    var dragPos by remember { mutableFloatStateOf(0f) }
     val safeDur = song.duration.toFloat().coerceAtLeast(1000f)
-    val safePos = (if (isDragging) dragPos else pos.toFloat()).coerceIn(0f, safeDur)
+    val progress = (pos.toFloat() / safeDur).coerceIn(0f, 1f)
 
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onTap),
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        tonalElevation = 16.dp
+        modifier = Modifier.fillMaxWidth(),
+        color = AppSurface,
+        tonalElevation = 0.dp
     ) {
-        Column(
-            Modifier
-                .padding(top = 12.dp, bottom = 16.dp, start = 16.dp, end = 16.dp)
-                .fillMaxWidth()
-        ) {
-            Slider(
-                value = safePos,
-                onValueChange = { isDragging = true; dragPos = it },
-                onValueChangeFinished = {
-                    onSeek(dragPos.toLong())
-                    isDragging = false
-                },
-                valueRange = 0f..safeDur,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(12.dp),
-                colors = SliderDefaults.colors(
-                    thumbColor = MaterialTheme.colorScheme.primary,
-                    activeTrackColor = MaterialTheme.colorScheme.primary,
-                    inactiveTrackColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                )
-            )
-
-            Row(
+        Column {
+            // Top divider
+            Box(
                 Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween
+                    .height(0.5.dp)
+                    .background(DividerColor)
+            )
+            // Thin progress bar at the very top edge
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(2.dp)
+                    .background(AppElevated)
             ) {
-                Text(formatDurationLong(safePos.toLong()), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(formatDuration(song.duration), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Box(
+                    Modifier
+                        .fillMaxWidth(fraction = progress)
+                        .height(2.dp)
+                        .background(TealPrimary)
+                )
             }
 
+            // Main row
             Row(
                 Modifier
                     .fillMaxWidth()
-                    .padding(top = 8.dp),
+                    .clickable(onClick = onTap)
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Card(
-                    Modifier.size(54.dp),
-                    shape = MaterialTheme.shapes.small,
-                    elevation = CardDefaults.cardElevation(4.dp)
+                // Album art
+                Box(
+                    Modifier
+                        .size(40.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(AppElevated),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.primaryContainer),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(Icons.Default.MusicNote, null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
-                        AsyncImage(model = song.albumArtUri, contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                    }
+                    Icon(Icons.Default.MusicNote, null, Modifier.size(18.dp), tint = TextMuted)
+                    AsyncImage(
+                        model = song.albumArtUri,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
                 }
 
-                Spacer(Modifier.width(16.dp))
+                Spacer(Modifier.width(12.dp))
 
                 Column(Modifier.weight(1f)) {
                     Text(
-                        song.title, fontWeight = FontWeight.Bold, fontSize = 15.sp, maxLines = 1,
+                        song.title,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 14.sp,
+                        maxLines = 1,
                         modifier = Modifier
                             .fillMaxWidth()
                             .basicMarquee(iterations = Int.MAX_VALUE, repeatDelayMillis = 2000),
-                        color = MaterialTheme.colorScheme.onSurface
+                        color = TextPrimary
                     )
-                    Spacer(Modifier.height(4.dp))
-                    Text(song.artist, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        song.artist,
+                        fontSize = 12.sp,
+                        color = TextMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
 
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    IconButton(onClick = onPrevious) { Icon(Icons.Default.SkipPrevious, "Previous", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(32.dp)) }
-                    IconButton(onClick = onPlayPause) { Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, if (isPlaying) "Pause" else "Play", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(42.dp)) }
-                    IconButton(onClick = onNext) { Icon(Icons.Default.SkipNext, "Next", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(32.dp)) }
+                IconButton(onClick = onPrevious, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.SkipPrevious, "Previous", Modifier.size(24.dp), tint = TextMuted)
+                }
+                IconButton(onClick = onPlayPause, modifier = Modifier.size(44.dp)) {
+                    Icon(
+                        if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                        if (isPlaying) "Pause" else "Play",
+                        Modifier.size(32.dp),
+                        tint = TextPrimary
+                    )
+                }
+                IconButton(onClick = onNext, modifier = Modifier.size(36.dp)) {
+                    Icon(Icons.Default.SkipNext, "Next", Modifier.size(24.dp), tint = TextMuted)
                 }
             }
         }

@@ -21,11 +21,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -35,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -43,6 +41,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.musicplayerdeck.data.model.Song
+import com.example.musicplayerdeck.ui.theme.AppBackground
+import com.example.musicplayerdeck.ui.theme.AppCard
+import com.example.musicplayerdeck.ui.theme.AppElevated
+import com.example.musicplayerdeck.ui.theme.DividerColor
+import com.example.musicplayerdeck.ui.theme.TealPrimary
+import com.example.musicplayerdeck.ui.theme.TextMuted
+import com.example.musicplayerdeck.ui.theme.TextPrimary
+import com.example.musicplayerdeck.ui.theme.TextSecondary
 import com.example.musicplayerdeck.util.formatDuration
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -97,7 +103,7 @@ fun SongDetailsScreen(
     Box(
         Modifier
             .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+            .background(AppBackground)
     ) {
         Column(
             Modifier
@@ -112,64 +118,60 @@ fun SongDetailsScreen(
                     .padding(bottom = 20.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onDismiss) {
+                IconButton(onClick = onDismiss, modifier = Modifier.size(36.dp)) {
                     Icon(
                         Icons.AutoMirrored.Filled.ArrowBack, "Back",
-                        tint = MaterialTheme.colorScheme.onBackground
+                        tint = TextSecondary
                     )
                 }
+                Spacer(Modifier.width(4.dp))
                 Text(
                     "Song Info",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp,
-                    color = MaterialTheme.colorScheme.onBackground
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 16.sp,
+                    color = TextPrimary
                 )
             }
 
-            // Album art + title
+            // Header: album art + song info
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Card(Modifier.size(88.dp), shape = RoundedCornerShape(12.dp)) {
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .background(MaterialTheme.colorScheme.surfaceVariant),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Default.MusicNote, null,
-                            Modifier.size(36.dp),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                        AsyncImage(
-                            model = song.albumArtUri,
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.Crop
-                        )
-                    }
+                Box(
+                    Modifier
+                        .size(80.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(AppElevated),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(Icons.Default.MusicNote, null, Modifier.size(32.dp), tint = TextMuted)
+                    AsyncImage(
+                        model = song.albumArtUri,
+                        contentDescription = null,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
                 }
                 Spacer(Modifier.width(16.dp))
                 Column(Modifier.weight(1f)) {
                     Text(
                         song.title,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 17.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 18.sp,
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
-                        color = MaterialTheme.colorScheme.onBackground
+                        color = TextPrimary
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
                         song.artist,
                         fontSize = 14.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = TextSecondary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                     Text(
                         song.album,
                         fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = TextMuted,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -178,8 +180,8 @@ fun SongDetailsScreen(
 
             Spacer(Modifier.height(24.dp))
 
-            // Playback info
-            DetailCard {
+            // Playback info card
+            DetailCard(label = "Playback") {
                 DetailRow("Duration", formatDuration(song.duration))
                 DetailRow(
                     "Play count",
@@ -191,8 +193,8 @@ fun SongDetailsScreen(
 
             Spacer(Modifier.height(12.dp))
 
-            // File info
-            DetailCard {
+            // File info card
+            DetailCard(label = "File") {
                 DetailRow("Format", mimeTypeToFormat(mimeType).ifEmpty { "—" })
                 DetailRow("Bitrate", bitrate.ifEmpty { "—" })
                 DetailRow("File size", fileSize.ifEmpty { "—" }, isLast = true)
@@ -200,7 +202,7 @@ fun SongDetailsScreen(
 
             if (filePath.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
-                DetailCard {
+                DetailCard(label = "Location") {
                     DetailRow("File path", filePath, isLast = true)
                 }
             }
@@ -209,13 +211,24 @@ fun SongDetailsScreen(
 }
 
 @Composable
-private fun DetailCard(content: @Composable ColumnScope.() -> Unit) {
-    Card(
-        Modifier.fillMaxWidth(),
-        elevation = CardDefaults.cardElevation(2.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+private fun DetailCard(label: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(AppCard)
+            .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        Column(Modifier.padding(horizontal = 16.dp), content = content)
+        // Section label: uppercase, teal, 11sp, letter-spacing
+        Text(
+            label.uppercase(),
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+            color = TealPrimary,
+            letterSpacing = 2.sp,
+            modifier = Modifier.padding(bottom = 8.dp)
+        )
+        content()
     }
 }
 
@@ -224,22 +237,21 @@ private fun DetailRow(label: String, value: String, isLast: Boolean = false) {
     Row(
         Modifier
             .fillMaxWidth()
-            .padding(vertical = 12.dp),
+            .padding(vertical = 8.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.Top
     ) {
         Text(
             label,
             fontSize = 13.sp,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontWeight = FontWeight.Medium,
+            color = TextMuted,
             modifier = Modifier.weight(0.38f)
         )
         Spacer(Modifier.width(8.dp))
         Text(
             value,
             fontSize = 13.sp,
-            color = MaterialTheme.colorScheme.onSurface,
+            color = TextPrimary,
             modifier = Modifier.weight(0.62f),
             softWrap = true,
             overflow = TextOverflow.Visible
@@ -250,7 +262,7 @@ private fun DetailRow(label: String, value: String, isLast: Boolean = false) {
             Modifier
                 .fillMaxWidth()
                 .height(0.5.dp)
-                .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                .background(DividerColor)
         )
     }
 }

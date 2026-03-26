@@ -11,9 +11,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,7 +28,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
@@ -42,16 +47,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.ScrollableTabRow
-import androidx.compose.material3.SearchBar
-import androidx.compose.material3.SearchBarDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRowDefaults
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBarDefaults
@@ -67,6 +65,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -89,8 +88,14 @@ import com.example.musicplayerdeck.ui.screens.tabs.FavoritesTab
 import com.example.musicplayerdeck.ui.screens.tabs.GroupedTab
 import com.example.musicplayerdeck.ui.screens.tabs.PlaylistsTab
 import com.example.musicplayerdeck.ui.screens.tabs.SongsTab
-import com.example.musicplayerdeck.ui.theme.DarkMintGradient
-import com.example.musicplayerdeck.ui.theme.MintGradient
+import com.example.musicplayerdeck.ui.theme.AppBackground
+import com.example.musicplayerdeck.ui.theme.AppCard
+import com.example.musicplayerdeck.ui.theme.AppElevated
+import com.example.musicplayerdeck.ui.theme.TealPrimary
+import com.example.musicplayerdeck.ui.theme.TextFaint
+import com.example.musicplayerdeck.ui.theme.TextMuted
+import com.example.musicplayerdeck.ui.theme.TextPrimary
+import com.example.musicplayerdeck.ui.theme.TextSecondary
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
@@ -318,8 +323,6 @@ fun MainScreen(
         }
     }
 
-    val gradient = if (isSystemInDarkTheme()) DarkMintGradient else MintGradient
-
     // Batch playlist picker dialog
     val batchIds = showBatchPlaylistPicker
     if (batchIds != null && playlists.isNotEmpty()) {
@@ -347,10 +350,10 @@ fun MainScreen(
                         ) {
                             Icon(
                                 Icons.AutoMirrored.Filled.PlaylistPlay, null,
-                                tint = MaterialTheme.colorScheme.primary
+                                tint = TealPrimary
                             )
                             Spacer(Modifier.width(16.dp))
-                            Text(pl.name, fontWeight = FontWeight.Medium)
+                            Text(pl.name, fontWeight = FontWeight.Medium, color = TextPrimary)
                         }
                     }
                 }
@@ -401,59 +404,64 @@ fun MainScreen(
             snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
                 if (isSearchActive) {
-                    SearchBar(
-                        inputField = {
-                            SearchBarDefaults.InputField(
-                                query = searchQuery,
-                                onQueryChange = { searchQuery = it },
-                                onSearch = {},
-                                expanded = false,
-                                onExpandedChange = {},
-                                placeholder = { Text("Search songs, artists, albums...") },
-                                leadingIcon = {
-                                    IconButton(onClick = {
-                                        isSearchActive = false
-                                        searchQuery = ""
-                                    }) {
-                                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
-                                    }
-                                },
-                                trailingIcon = {
-                                    if (searchQuery.isNotEmpty()) {
-                                        IconButton(onClick = { searchQuery = "" }) {
-                                            Icon(Icons.Default.Close, "Clear")
-                                        }
-                                    }
-                                }
-                            )
-                        },
-                        expanded = false,
-                        onExpandedChange = {},
-                        modifier = Modifier
+                    // Pill-shaped search bar
+                    Row(
+                        Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 8.dp)
-                    ) {}
+                            .background(AppBackground)
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            onClick = { isSearchActive = false; searchQuery = "" },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = TextSecondary, modifier = Modifier.size(20.dp))
+                        }
+                        Row(
+                            Modifier
+                                .weight(1f)
+                                .background(AppElevated, RoundedCornerShape(12.dp))
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(Icons.Default.Search, null, Modifier.size(18.dp), tint = TextMuted)
+                            Spacer(Modifier.width(8.dp))
+                            Box(Modifier.weight(1f)) {
+                                if (searchQuery.isEmpty()) {
+                                    Text("Search songs, artists…", fontSize = 14.sp, color = TextFaint)
+                                }
+                                BasicTextField(
+                                    value = searchQuery,
+                                    onValueChange = { searchQuery = it },
+                                    singleLine = true,
+                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, color = TextPrimary),
+                                    cursorBrush = SolidColor(TealPrimary),
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                            if (searchQuery.isNotEmpty()) {
+                                IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(20.dp)) {
+                                    Icon(Icons.Default.Close, "Clear", Modifier.size(16.dp), tint = TextMuted)
+                                }
+                            }
+                        }
+                    }
                 } else {
                     TopAppBar(
                         title = {
                             Text(
                                 "Music Player Deck",
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onBackground
+                                color = TextPrimary
                             )
                         },
                         actions = {
                             IconButton(onClick = { isSearchActive = true }) {
-                                Icon(
-                                    Icons.Default.Search,
-                                    "Search",
-                                    tint = MaterialTheme.colorScheme.onBackground
-                                )
+                                Icon(Icons.Default.Search, "Search", tint = TextSecondary)
                             }
                         },
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = Color.Transparent
-                        )
+                        colors = TopAppBarDefaults.topAppBarColors(containerColor = AppBackground)
                     )
                 }
             },
@@ -476,12 +484,12 @@ fun MainScreen(
                     )
                 }
             },
-            containerColor = Color.Transparent
+            containerColor = AppBackground
         ) { innerPadding ->
             Box(
                 Modifier
                     .fillMaxSize()
-                    .background(gradient)
+                    .background(AppBackground)
                     .padding(innerPadding)
             ) {
                 Column(
@@ -497,12 +505,12 @@ fun MainScreen(
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     Icon(
                                         Icons.Default.SearchOff, null, Modifier.size(64.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                        tint = TextMuted.copy(alpha = 0.5f)
                                     )
                                     Spacer(Modifier.height(12.dp))
                                     Text(
                                         "No results for \"$debouncedSearch\"",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        color = TextMuted,
                                         fontSize = 16.sp
                                     )
                                 }
@@ -510,14 +518,14 @@ fun MainScreen(
                         } else {
                             Text(
                                 "${searchResults.size} results",
-                                fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                fontWeight = FontWeight.Medium,
+                                fontSize = 13.sp,
+                                color = TextMuted,
                                 modifier = Modifier.padding(vertical = 8.dp)
                             )
                             LazyColumn(
                                 Modifier.fillMaxSize(),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(0.dp),
                                 contentPadding = PaddingValues(bottom = 24.dp)
                             ) {
                                 items(items = searchResults, key = { it.id }) { song ->
@@ -534,44 +542,41 @@ fun MainScreen(
                             }
                         }
                     } else {
-                        Spacer(Modifier.height(8.dp))
-                        ScrollableTabRow(
-                            selectedTabIndex = selectedTabIndex,
-                            edgePadding = 0.dp,
-                            containerColor = Color.Transparent,
-                            divider = {},
-                            indicator = { tp ->
-                                TabRowDefaults.SecondaryIndicator(
-                                    Modifier.tabIndicatorOffset(tp[selectedTabIndex]),
-                                    color = MaterialTheme.colorScheme.onBackground
-                                )
-                            }
+                        Spacer(Modifier.height(4.dp))
+                        // Pill-style tab strip
+                        LazyRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentPadding = PaddingValues(horizontal = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            tabs.forEachIndexed { i, t ->
-                                Tab(
-                                    selected = selectedTabIndex == i,
-                                    onClick = { selectedTabIndex = i },
-                                    text = {
-                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                            Text(
-                                                t,
-                                                color = if (selectedTabIndex == i) MaterialTheme.colorScheme.onBackground
-                                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                                                fontWeight = if (selectedTabIndex == i) FontWeight.Bold
-                                                else FontWeight.Medium
-                                            )
-                                            val count = tabCounts.getOrElse(i) { 0 }
-                                            Text(
-                                                count.toString(),
-                                                fontSize = 10.sp,
-                                                color = if (selectedTabIndex == i) MaterialTheme.colorScheme.onBackground
-                                                else MaterialTheme.colorScheme.onSurfaceVariant,
-                                                fontWeight = FontWeight.Normal,
-                                                lineHeight = 12.sp
-                                            )
-                                        }
-                                    }
+                            itemsIndexed(tabs) { i, tab ->
+                                val selected = selectedTabIndex == i
+                                val bgColor by animateColorAsState(
+                                    targetValue = if (selected) AppCard else Color.Transparent,
+                                    animationSpec = tween(durationMillis = 200),
+                                    label = "tabBg"
                                 )
+                                val textColor by animateColorAsState(
+                                    targetValue = if (selected) TealPrimary else TextMuted,
+                                    animationSpec = tween(durationMillis = 200),
+                                    label = "tabText"
+                                )
+                                Column(
+                                    Modifier
+                                        .background(bgColor, RoundedCornerShape(10.dp))
+                                        .clickable { selectedTabIndex = i }
+                                        .padding(horizontal = 14.dp, vertical = 7.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(tab, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = textColor)
+                                    val count = tabCounts.getOrElse(i) { 0 }
+                                    Text(
+                                        count.toString(),
+                                        fontSize = 9.sp,
+                                        color = textColor.copy(alpha = if (selected) 1f else 0.6f),
+                                        lineHeight = 11.sp
+                                    )
+                                }
                             }
                         }
 

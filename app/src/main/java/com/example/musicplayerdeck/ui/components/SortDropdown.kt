@@ -60,7 +60,11 @@ fun SortDropdown(
             )
         }
 
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            containerColor = com.example.musicplayerdeck.ui.theme.AppCard
+        ) {
             SortOption.entries.forEach { option ->
                 if (option == SortOption.PLAY_COUNT && !showPlayCount) return@forEach
                 DropdownMenuItem(

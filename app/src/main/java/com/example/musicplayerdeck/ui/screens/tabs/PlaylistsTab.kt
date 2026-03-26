@@ -160,7 +160,7 @@ fun PlaylistsTab(
                 Modifier
                     .fillMaxWidth()
                     .padding(top = 8.dp, bottom = 4.dp),
-                horizontalArrangement = Arrangement.End
+                horizontalArrangement = Arrangement.Start
             ) {
                 OutlinedButton(
                     onClick = onCreateClick,

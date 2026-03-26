@@ -1,63 +1,47 @@
 package com.example.musicplayerdeck.ui.theme
 
-import android.app.Activity
-import android.os.Build
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 
-private val DarkColorScheme = darkColorScheme(
-    primary = Mint40,
-    secondary = MintGrey80,
-    tertiary = MintAccent80,
-    background = DarkMint,
-    surface = DarkMint,
-    onPrimary = Color.White,
-    onSecondary = Color.Black,
-    onTertiary = Color.Black,
-    onBackground = LightMint,
-    onSurface = LightMint,
-)
-
-private val LightColorScheme = lightColorScheme(
-    primary = Mint40,
-    secondary = MintGrey40,
-    tertiary = MintAccent40,
-    background = LightMint,
-    surface = Color.White,
-    onPrimary = Color.White,
-    onSecondary = Color.White,
-    onTertiary = Color.White,
-    onBackground = DarkMint,
-    onSurface = DarkMint,
+private val ColorScheme = darkColorScheme(
+    primary              = TealPrimary,
+    onPrimary            = AppBackground,
+    primaryContainer     = AppElevated,
+    onPrimaryContainer   = TealPrimary,
+    secondary            = TealPrimaryDark,
+    onSecondary          = AppBackground,
+    secondaryContainer   = AppCard,
+    onSecondaryContainer = TextPrimary,
+    tertiary             = TextMuted,
+    onTertiary           = AppBackground,
+    background           = AppBackground,
+    surface              = AppSurface,
+    surfaceVariant       = AppCard,
+    onBackground         = TextPrimary,
+    onSurface            = TextPrimary,
+    onSurfaceVariant     = TextSecondary,
+    outline              = DividerLightColor,
+    outlineVariant       = DividerColor,
+    scrim                = Color.Black,
+    error                = Color(0xFFCF6679),
+    onError              = Color.White,
+    errorContainer       = Color(0xFF3B1218),
+    onErrorContainer     = Color(0xFFFFB3B8),
+    inverseSurface       = TextPrimary,
+    inverseOnSurface     = AppBackground,
+    inversePrimary       = TealPrimaryDark,
+    surfaceTint          = TealPrimary,
 )
 
 @Composable
 fun MusicPlayerDeckTheme(
-    darkTheme: Boolean = isSystemInDarkTheme(),
-    // Set dynamicColor to false to ensure our mint theme is used
-    dynamicColor: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    val colorScheme = when {
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-            val context = LocalContext.current
-            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        }
-
-        darkTheme -> DarkColorScheme
-        else -> LightColorScheme
-    }
-
     MaterialTheme(
-        colorScheme = colorScheme,
-        typography = Typography,
-        content = content
+        colorScheme = ColorScheme,
+        typography  = Typography,
+        content     = content
     )
 }

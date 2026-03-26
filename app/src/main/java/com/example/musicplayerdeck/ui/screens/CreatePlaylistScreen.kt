@@ -7,7 +7,6 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -51,7 +50,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SuggestionChip
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.AlertDialog
@@ -73,8 +71,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.musicplayerdeck.data.model.Song
-import com.example.musicplayerdeck.ui.theme.DarkMintGradient
-import com.example.musicplayerdeck.ui.theme.MintGradient
+import com.example.musicplayerdeck.ui.theme.AppBackground
 import com.example.musicplayerdeck.util.formatDuration
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
@@ -117,7 +114,6 @@ fun CreatePlaylistScreen(
         selected.take(5).mapNotNull { id -> allSongs.find { it.id == id } }
     }
 
-    val gradient = if (isSystemInDarkTheme()) DarkMintGradient else MintGradient
     BackHandler { onDismiss() }
 
     // ─── Folder multi-select dialog ─────────────────────────────────────────
@@ -256,12 +252,11 @@ fun CreatePlaylistScreen(
     }
 
     // ─── Screen ─────────────────────────────────────────────────────────────
-    Surface(Modifier.fillMaxSize(), color = Color.Transparent) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .background(gradient)
-        ) {
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(AppBackground)
+    ) {
             Column(
                 Modifier
                     .fillMaxSize()
@@ -272,15 +267,19 @@ fun CreatePlaylistScreen(
                 Row(
                     Modifier
                         .fillMaxWidth()
-                        .padding(start = 4.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
+                        .padding(start = 8.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = onDismiss) {
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(36.dp)
+                    ) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack, "Back",
                             tint = MaterialTheme.colorScheme.onBackground
                         )
                     }
+                    Spacer(Modifier.width(4.dp))
                     Text(
                         "Create Playlist",
                         style = MaterialTheme.typography.titleLarge,
@@ -700,5 +699,4 @@ fun CreatePlaylistScreen(
                 }
             }
         }
-    }
 }
