@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -74,7 +75,6 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import com.example.musicplayerdeck.data.model.Playlist
 import com.example.musicplayerdeck.data.model.Song
-import android.util.Log
 import com.example.musicplayerdeck.data.repository.loadPlayCounts
 import com.example.musicplayerdeck.data.repository.loadPlaylists
 import com.example.musicplayerdeck.data.repository.loadRecentlyPlayed
@@ -124,7 +124,6 @@ fun MainScreen(
     onSeek: (Long) -> Unit,
     onAddToQueue: (Song) -> Unit
 ) {
-    Log.d("STARTUP", "MainScreen composing")
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val prefs = remember { ctx.getSharedPreferences("MusicPlayerDeckPrefs", Context.MODE_PRIVATE) }
@@ -229,7 +228,7 @@ fun MainScreen(
     var selectedArtist by remember { mutableStateOf<String?>(null) }
     var selectedPlaylist by remember { mutableStateOf<Playlist?>(null) }
 
-    val folders: ImmutableList<Pair<String, Int>> by remember {
+    val folders: ImmutableList<Pair<String, Int>> by remember(songs) {
         derivedStateOf {
             songs.groupBy { it.folder }
                 .mapValues { entry -> entry.value.size }
@@ -238,7 +237,7 @@ fun MainScreen(
                 .toImmutableList()
         }
     }
-    val albums: ImmutableList<Pair<String, Int>> by remember {
+    val albums: ImmutableList<Pair<String, Int>> by remember(songs) {
         derivedStateOf {
             songs.groupBy { it.album }
                 .mapValues { entry -> entry.value.size }
@@ -247,7 +246,7 @@ fun MainScreen(
                 .toImmutableList()
         }
     }
-    val artists: ImmutableList<Pair<String, Int>> by remember {
+    val artists: ImmutableList<Pair<String, Int>> by remember(songs) {
         derivedStateOf {
             songs.groupBy { it.artist }
                 .mapValues { entry -> entry.value.size }
@@ -446,20 +445,22 @@ fun MainScreen(
             bottomBar = {
                 val song = currentSong
                 if (song != null) {
-                    MiniPlayer(
-                        song = song,
-                        isPlaying = isPlaying,
-                        playbackPositionProvider = playbackPositionProvider,
-                        onPlayPause = onPlayPause,
-                        onNext = onNext,
-                        onPrevious = onPrevious,
-                        onSeek = onSeek,
-                        onTap = {
-                            bottomSheetSong = null
-                            songDetailsTarget = null
-                            isNowPlayingOpen = true
-                        }
-                    )
+                    Column(Modifier.navigationBarsPadding()) {
+                        MiniPlayer(
+                            song = song,
+                            isPlaying = isPlaying,
+                            playbackPositionProvider = playbackPositionProvider,
+                            onPlayPause = onPlayPause,
+                            onNext = onNext,
+                            onPrevious = onPrevious,
+                            onSeek = onSeek,
+                            onTap = {
+                                bottomSheetSong = null
+                                songDetailsTarget = null
+                                isNowPlayingOpen = true
+                            }
+                        )
+                    }
                 }
             },
             containerColor = AppBackground

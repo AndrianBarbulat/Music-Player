@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -E \"\\\\.\\(xml|png|jpg|jpeg|webp\\)$\")",
+      "Bash(find /d/Projects/Music-Player -type f -name MainActivity.kt -o -type f -name *ViewModel.kt -o -type f -name MainScreen.kt -o -type f -name build.gradle.kts)"
+    ]
+  }
+}

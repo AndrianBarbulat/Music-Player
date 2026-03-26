@@ -2,14 +2,13 @@ package com.example.musicplayerdeck
 
 import android.content.ComponentName
 import android.os.Bundle
-import android.util.Log
 import androidx.activity.ComponentActivity
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.runtime.remember
 import androidx.core.content.ContextCompat
-import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.example.musicplayerdeck.data.model.Song
@@ -25,17 +24,12 @@ class MainActivity : ComponentActivity() {
     private val vm: MusicPlayerViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        Log.d("STARTUP", "onCreate start")
-        val splashScreen = installSplashScreen()
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         val prefs = getSharedPreferences("MusicPlayerDeckPrefs", MODE_PRIVATE)
         vm.initialize(prefs)
-        // Hold the splash until the initial song scan finishes — user sees logo, not a blank screen
-        splashScreen.setKeepOnScreenCondition { vm.isSongsLoading }
         enableEdgeToEdge()
-        Log.d("STARTUP", "before setContent")
         setContent {
-            Log.d("STARTUP", "setContent called")
             MusicPlayerDeckTheme {
                 val onSong: (Song, ImmutableList<Song>) -> Unit = remember {
                     { s: Song, p: ImmutableList<Song> -> vm.playSong(s, p) }
