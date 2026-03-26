@@ -610,6 +610,12 @@ fun MainScreen(
                                             if (it.name == updated.name) updated else it
                                         }.toImmutableList()
                                         savePlaylists(prefs, playlists)
+                                    },
+                                    onRenamePlaylist = { playlist, newName ->
+                                        playlists = playlists.map {
+                                            if (it.name == playlist.name) it.copy(name = newName) else it
+                                        }.toImmutableList()
+                                        savePlaylists(prefs, playlists)
                                     }
                                 )
                                 2 -> GroupedTab(

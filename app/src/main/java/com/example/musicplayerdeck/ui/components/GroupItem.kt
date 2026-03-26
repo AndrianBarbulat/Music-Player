@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -31,7 +32,8 @@ fun GroupItem(
     count: Int,
     icon: ImageVector,
     onClick: () -> Unit,
-    onDeleteClick: (() -> Unit)? = null
+    onDeleteClick: (() -> Unit)? = null,
+    onRenameClick: (() -> Unit)? = null
 ) {
     Card(
         Modifier
@@ -63,6 +65,16 @@ fun GroupItem(
                     fontSize = 13.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+            if (onRenameClick != null) {
+                IconButton(onClick = onRenameClick, Modifier.size(32.dp)) {
+                    Icon(
+                        Icons.Default.Edit,
+                        "Rename",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
             }
             if (onDeleteClick != null) {
                 IconButton(onClick = onDeleteClick, Modifier.size(32.dp)) {

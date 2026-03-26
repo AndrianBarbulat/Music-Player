@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.RemoveCircleOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -85,9 +86,12 @@ fun PlaylistsTab(
     onAddToQueue: (Song) -> Unit,
     snackbarHostState: SnackbarHostState,
     scope: CoroutineScope,
-    onUpdatePlaylist: ((Playlist) -> Unit)? = null
+    onUpdatePlaylist: ((Playlist) -> Unit)? = null,
+    onRenamePlaylist: ((Playlist, String) -> Unit)? = null
 ) {
     var toDelete by remember { mutableStateOf<Playlist?>(null) }
+    var toRename by remember { mutableStateOf<Playlist?>(null) }
+    var renameText by remember { mutableStateOf("") }
 
     val deleteTarget = toDelete
     if (deleteTarget != null) {
@@ -105,6 +109,45 @@ fun PlaylistsTab(
             },
             dismissButton = {
                 TextButton(onClick = { toDelete = null }) {
+                    Text(
+                        "Cancel",
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+        )
+    }
+
+    val renameTarget = toRename
+    if (renameTarget != null && onRenamePlaylist != null) {
+        AlertDialog(
+            onDismissRequest = { toRename = null },
+            title = { Text("Rename Playlist", fontWeight = FontWeight.Bold) },
+            text = {
+                OutlinedTextField(
+                    value = renameText,
+                    onValueChange = { renameText = it },
+                    label = { Text("Playlist name") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val trimmed = renameText.trim()
+                        if (trimmed.isNotEmpty()) {
+                            onRenamePlaylist(renameTarget, trimmed)
+                        }
+                        toRename = null
+                    },
+                    enabled = renameText.trim().isNotEmpty()
+                ) {
+                    Text("Rename", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { toRename = null }) {
                     Text(
                         "Cancel",
                         fontWeight = FontWeight.Bold,
@@ -147,7 +190,10 @@ fun PlaylistsTab(
                             count = pl.songIds.size,
                             icon = Icons.AutoMirrored.Filled.PlaylistPlay,
                             onClick = { onPlaylistClick(pl) },
-                            onDeleteClick = { toDelete = pl }
+                            onDeleteClick = { toDelete = pl },
+                            onRenameClick = if (onRenamePlaylist != null) {
+                                { renameText = pl.name; toRename = pl }
+                            } else null
                         )
                     }
                 }
