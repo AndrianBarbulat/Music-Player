@@ -3,6 +3,7 @@ package com.example.musicplayerdeck
 import android.content.ComponentName
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -31,6 +32,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             MusicPlayerDeckTheme {
+                BackHandler { moveTaskToBack(true) }
                 val onSong: (Song, ImmutableList<Song>) -> Unit = remember {
                     { s: Song, p: ImmutableList<Song> -> vm.playSong(s, p) }
                 }
