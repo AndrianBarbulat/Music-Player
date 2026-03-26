@@ -271,6 +271,21 @@ fun MainScreen(
         }
     }
 
+    val tabCounts: List<Int> by remember(songs, playlists, folders, albums, artists, favoriteIds, recentlyPlayedIds, playCounts) {
+        derivedStateOf {
+            listOf(
+                songs.size,
+                playlists.size,
+                folders.size,
+                songs.count { favoriteIds.contains(it.id.toString()) },
+                albums.size,
+                artists.size,
+                recentlyPlayedIds.count { id -> songs.any { it.id == id } },
+                songs.count { (playCounts[it.id] ?: 0) > 0 }
+            )
+        }
+    }
+
     LaunchedEffect(selectedTabIndex) {
         selectedFolder = null
         selectedAlbum = null
@@ -546,13 +561,24 @@ fun MainScreen(
                                     selected = selectedTabIndex == i,
                                     onClick = { selectedTabIndex = i },
                                     text = {
-                                        Text(
-                                            t,
-                                            color = if (selectedTabIndex == i) MaterialTheme.colorScheme.onBackground
-                                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                                            fontWeight = if (selectedTabIndex == i) FontWeight.Bold
-                                            else FontWeight.Medium
-                                        )
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Text(
+                                                t,
+                                                color = if (selectedTabIndex == i) MaterialTheme.colorScheme.onBackground
+                                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                fontWeight = if (selectedTabIndex == i) FontWeight.Bold
+                                                else FontWeight.Medium
+                                            )
+                                            val count = tabCounts.getOrElse(i) { 0 }
+                                            Text(
+                                                count.toString(),
+                                                fontSize = 10.sp,
+                                                color = if (selectedTabIndex == i) MaterialTheme.colorScheme.onBackground
+                                                else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                fontWeight = FontWeight.Normal,
+                                                lineHeight = 12.sp
+                                            )
+                                        }
                                     }
                                 )
                             }
