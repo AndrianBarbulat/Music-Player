@@ -35,7 +35,6 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -62,8 +61,6 @@ import com.example.musicplayerdeck.util.formatDuration
 import com.example.musicplayerdeck.util.formatTotalDuration
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
 import sh.calvin.reorderable.ReorderableItem
 import sh.calvin.reorderable.rememberReorderableLazyListState
 
@@ -83,11 +80,9 @@ fun PlaylistsTab(
     onToggleFavorite: (Long) -> Unit,
     onSongSelected: (Song, ImmutableList<Song>) -> Unit,
     onDeletePlaylist: (Playlist) -> Unit,
-    onAddToQueue: (Song) -> Unit,
-    snackbarHostState: SnackbarHostState,
-    scope: CoroutineScope,
     onUpdatePlaylist: ((Playlist) -> Unit)? = null,
-    onRenamePlaylist: ((Playlist, String) -> Unit)? = null
+    onRenamePlaylist: ((Playlist, String) -> Unit)? = null,
+    onSongMoreClick: ((Song) -> Unit)? = null
 ) {
     var toDelete by remember { mutableStateOf<Playlist?>(null) }
     var toRename by remember { mutableStateOf<Playlist?>(null) }
@@ -397,10 +392,7 @@ fun PlaylistsTab(
                             isFavorite = favoriteIds.contains(song.id.toString()),
                             onFavoriteToggle = onToggleFavorite,
                             onSongClick = onSongSelected,
-                            onAddToQueue = { qSong ->
-                                onAddToQueue(qSong)
-                                scope.launch { snackbarHostState.showSnackbar("Added to queue") }
-                            }
+                            onMoreClick = if (onSongMoreClick != null) { { onSongMoreClick(song) } } else null
                         )
                     }
                 }

@@ -24,7 +24,6 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -52,8 +51,6 @@ import com.example.musicplayerdeck.ui.components.sortSongs
 import com.example.musicplayerdeck.util.formatTotalDuration
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
 
 @Composable
 fun GroupedTab(
@@ -73,11 +70,9 @@ fun GroupedTab(
     onSongSelected: (Song, ImmutableList<Song>) -> Unit,
     onFindSongs: () -> Unit,
     currentSong: Song?,
-    onAddToQueue: (Song) -> Unit,
-    snackbarHostState: SnackbarHostState,
-    scope: CoroutineScope,
     playCounts: Map<Long, Int> = emptyMap(),
-    onBatchAddToPlaylist: ((Set<Long>) -> Unit)? = null
+    onBatchAddToPlaylist: ((Set<Long>) -> Unit)? = null,
+    onSongMoreClick: ((Song) -> Unit)? = null
 ) {
     if (selectedItem == null) {
         Column(Modifier.fillMaxSize()) {
@@ -241,16 +236,13 @@ fun GroupedTab(
                         isFavorite = favoriteIds.contains(song.id.toString()),
                         onFavoriteToggle = onToggleFavorite,
                         onSongClick = onSongSelected,
-                        onAddToQueue = { qSong ->
-                            onAddToQueue(qSong)
-                            scope.launch { snackbarHostState.showSnackbar("Added to queue") }
-                        },
                         isBatchMode = isBatchMode,
                         isSelected = selectedIds.contains(song.id),
                         onBatchToggle = { id ->
                             selectedIds = if (selectedIds.contains(id)) selectedIds - id
                             else selectedIds + id
-                        }
+                        },
+                        onMoreClick = if (onSongMoreClick != null) { { onSongMoreClick(song) } } else null
                     )
                 }
             }

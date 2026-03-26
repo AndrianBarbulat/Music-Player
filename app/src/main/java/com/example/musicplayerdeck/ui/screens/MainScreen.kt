@@ -83,7 +83,9 @@ import com.example.musicplayerdeck.data.repository.loadRecentlyPlayed
 import com.example.musicplayerdeck.data.repository.savePlaylists
 import com.example.musicplayerdeck.data.repository.syncPlaylistsWithFolders
 import com.example.musicplayerdeck.ui.components.MiniPlayer
+import com.example.musicplayerdeck.ui.components.SongOptionsSheet
 import com.example.musicplayerdeck.ui.components.SwipeableSongItem
+import com.example.musicplayerdeck.ui.screens.SongDetailsScreen
 import com.example.musicplayerdeck.ui.screens.tabs.FavoritesTab
 import com.example.musicplayerdeck.ui.screens.tabs.GroupedTab
 import com.example.musicplayerdeck.ui.screens.tabs.PlaylistsTab
@@ -138,6 +140,8 @@ fun MainScreen(
     var playlists by remember { mutableStateOf(loadPlaylists(prefs)) }
     var isCreatingPlaylist by remember { mutableStateOf(false) }
     var isNowPlayingOpen by remember { mutableStateOf(false) }
+    var songDetailsTarget by remember { mutableStateOf<Song?>(null) }
+    var bottomSheetSong by remember { mutableStateOf<Song?>(null) }
 
     var playCounts by remember { mutableStateOf<Map<Long, Int>>(emptyMap()) }
     var recentlyPlayedIds by remember { mutableStateOf<List<Long>>(emptyList()) }
@@ -360,26 +364,20 @@ fun MainScreen(
         )
     }
 
-    // Full Now Playing overlay
-    AnimatedVisibility(
-        visible = isNowPlayingOpen && currentSong != null,
-        enter = slideInVertically(initialOffsetY = { fullHeight -> fullHeight }),
-        exit = slideOutVertically(targetOffsetY = { fullHeight -> fullHeight })
-    ) {
-        val nowSong = currentSong
-        if (nowSong != null) {
-            NowPlayingScreen(
-                song = nowSong,
-                isPlaying = isPlaying,
-                isShuffleEnabled = isShuffleEnabled,
-                playbackPositionProvider = playbackPositionProvider,
-                onPlayPause = onPlayPause,
-                onNext = onNext,
-                onPrevious = onPrevious,
-                onSeek = onSeek,
-                onDismiss = { isNowPlayingOpen = false }
-            )
-        }
+    val sheetSong = bottomSheetSong
+    if (sheetSong != null) {
+        SongOptionsSheet(
+            song = sheetSong,
+            onDismiss = { bottomSheetSong = null },
+            onSongInfo = {
+                songDetailsTarget = sheetSong
+                bottomSheetSong = null
+            },
+            onAddToPlaylist = {
+                showBatchPlaylistPicker = setOf(sheetSong.id)
+                bottomSheetSong = null
+            }
+        )
     }
 
     if (isCreatingPlaylist) {
@@ -478,7 +476,11 @@ fun MainScreen(
                         onNext = onNext,
                         onPrevious = onPrevious,
                         onSeek = onSeek,
-                        onTap = { isNowPlayingOpen = true }
+                        onTap = {
+                            bottomSheetSong = null
+                            songDetailsTarget = null
+                            isNowPlayingOpen = true
+                        }
                     )
                 }
             },
@@ -534,10 +536,7 @@ fun MainScreen(
                                         isFavorite = favoriteIds.contains(song.id.toString()),
                                         onFavoriteToggle = toggleFav,
                                         onSongClick = onSongSelected,
-                                        onAddToQueue = { qSong ->
-                                            onAddToQueue(qSong)
-                                            scope.launch { snackbarHostState.showSnackbar("Added to queue") }
-                                        }
+                                        onMoreClick = { bottomSheetSong = song }
                                     )
                                 }
                             }
@@ -591,9 +590,10 @@ fun MainScreen(
                                 0 -> SongsTab(
                                     songs, isLoading, isShuffleEnabled, currentSong, favoriteIds,
                                     onShuffleToggle, onReshuffle, toggleFav, onSongSelected,
-                                    onFindSongs, onAddToQueue, snackbarHostState, scope,
+                                    onFindSongs,
                                     playCounts = playCounts,
-                                    onBatchAddToPlaylist = onBatchAdd
+                                    onBatchAddToPlaylist = onBatchAdd,
+                                    onSongMoreClick = { bottomSheetSong = it }
                                 )
                                 1 -> PlaylistsTab(
                                     playlists, songs, currentSong, selectedPlaylist,
@@ -604,7 +604,6 @@ fun MainScreen(
                                         playlists = playlists.filter { it.name != p.name }.toImmutableList()
                                         savePlaylists(prefs, playlists)
                                     },
-                                    onAddToQueue, snackbarHostState, scope,
                                     onUpdatePlaylist = { updated ->
                                         playlists = playlists.map {
                                             if (it.name == updated.name) updated else it
@@ -616,37 +615,42 @@ fun MainScreen(
                                             if (it.name == playlist.name) it.copy(name = newName) else it
                                         }.toImmutableList()
                                         savePlaylists(prefs, playlists)
-                                    }
+                                    },
+                                    onSongMoreClick = { bottomSheetSong = it }
                                 )
                                 2 -> GroupedTab(
                                     folders, isLoading, Icons.Default.Folder, selectedFolder,
                                     { selectedFolder = it }, { selectedFolder = null }, songs,
                                     { it.folder == selectedFolder }, favoriteIds, isShuffleEnabled,
                                     onShuffleToggle, onReshuffle, toggleFav, onSongSelected,
-                                    onFindSongs, currentSong, onAddToQueue, snackbarHostState, scope,
-                                    playCounts, onBatchAddToPlaylist = onBatchAdd
+                                    onFindSongs, currentSong,
+                                    playCounts, onBatchAddToPlaylist = onBatchAdd,
+                                    onSongMoreClick = { bottomSheetSong = it }
                                 )
                                 3 -> FavoritesTab(
                                     songs, favoriteIds, isShuffleEnabled, currentSong,
                                     onShuffleToggle, onReshuffle, toggleFav, onSongSelected,
-                                    onAddToQueue, snackbarHostState, scope, playCounts,
-                                    onBatchAddToPlaylist = onBatchAdd
+                                    playCounts,
+                                    onBatchAddToPlaylist = onBatchAdd,
+                                    onSongMoreClick = { bottomSheetSong = it }
                                 )
                                 4 -> GroupedTab(
                                     albums, isLoading, Icons.Default.Album, selectedAlbum,
                                     { selectedAlbum = it }, { selectedAlbum = null }, songs,
                                     { it.album == selectedAlbum }, favoriteIds, isShuffleEnabled,
                                     onShuffleToggle, onReshuffle, toggleFav, onSongSelected,
-                                    onFindSongs, currentSong, onAddToQueue, snackbarHostState, scope,
-                                    playCounts, onBatchAddToPlaylist = onBatchAdd
+                                    onFindSongs, currentSong,
+                                    playCounts, onBatchAddToPlaylist = onBatchAdd,
+                                    onSongMoreClick = { bottomSheetSong = it }
                                 )
                                 5 -> GroupedTab(
                                     artists, isLoading, Icons.Default.Person, selectedArtist,
                                     { selectedArtist = it }, { selectedArtist = null }, songs,
                                     { it.artist == selectedArtist }, favoriteIds, isShuffleEnabled,
                                     onShuffleToggle, onReshuffle, toggleFav, onSongSelected,
-                                    onFindSongs, currentSong, onAddToQueue, snackbarHostState, scope,
-                                    playCounts, onBatchAddToPlaylist = onBatchAdd
+                                    onFindSongs, currentSong,
+                                    playCounts, onBatchAddToPlaylist = onBatchAdd,
+                                    onSongMoreClick = { bottomSheetSong = it }
                                 )
                                 6 -> {
                                     val recentSongs = remember(songs, recentlyPlayedIds) {
@@ -657,9 +661,10 @@ fun MainScreen(
                                     SongsTab(
                                         recentSongs, isLoading, isShuffleEnabled, currentSong,
                                         favoriteIds, onShuffleToggle, onReshuffle, toggleFav,
-                                        onSongSelected, {}, onAddToQueue, snackbarHostState, scope,
+                                        onSongSelected, {},
                                         playCounts = playCounts,
-                                        onBatchAddToPlaylist = onBatchAdd
+                                        onBatchAddToPlaylist = onBatchAdd,
+                                        onSongMoreClick = { bottomSheetSong = it }
                                     )
                                 }
                                 7 -> {
@@ -671,9 +676,10 @@ fun MainScreen(
                                     SongsTab(
                                         topSongs, isLoading, isShuffleEnabled, currentSong,
                                         favoriteIds, onShuffleToggle, onReshuffle, toggleFav,
-                                        onSongSelected, {}, onAddToQueue, snackbarHostState, scope,
+                                        onSongSelected, {},
                                         playCounts = playCounts,
-                                        onBatchAddToPlaylist = onBatchAdd
+                                        onBatchAddToPlaylist = onBatchAdd,
+                                        onSongMoreClick = { bottomSheetSong = it }
                                     )
                                 }
                             }
@@ -681,6 +687,45 @@ fun MainScreen(
                     }
                 }
             }
+        }
+    }
+
+    // Full Now Playing overlay — placed after Scaffold so it draws on top
+    AnimatedVisibility(
+        visible = isNowPlayingOpen && currentSong != null,
+        enter = slideInVertically(initialOffsetY = { fullHeight -> fullHeight }),
+        exit = slideOutVertically(targetOffsetY = { fullHeight -> fullHeight })
+    ) {
+        val nowSong = currentSong
+        if (nowSong != null) {
+            NowPlayingScreen(
+                song = nowSong,
+                isPlaying = isPlaying,
+                isShuffleEnabled = isShuffleEnabled,
+                playbackPositionProvider = playbackPositionProvider,
+                onPlayPause = onPlayPause,
+                onNext = onNext,
+                onPrevious = onPrevious,
+                onSeek = onSeek,
+                onDismiss = { isNowPlayingOpen = false },
+                onMoreClick = { bottomSheetSong = currentSong }
+            )
+        }
+    }
+
+    // Song details overlay — placed last so it draws on top of everything
+    AnimatedVisibility(
+        visible = songDetailsTarget != null,
+        enter = slideInVertically(initialOffsetY = { fullHeight -> fullHeight }),
+        exit = slideOutVertically(targetOffsetY = { fullHeight -> fullHeight })
+    ) {
+        val detailsSong = songDetailsTarget
+        if (detailsSong != null) {
+            SongDetailsScreen(
+                song = detailsSong,
+                playCount = playCounts[detailsSong.id] ?: 0,
+                onDismiss = { songDetailsTarget = null }
+            )
         }
     }
 }

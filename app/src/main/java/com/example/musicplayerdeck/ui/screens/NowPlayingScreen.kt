@@ -22,6 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
@@ -70,7 +71,8 @@ fun NowPlayingScreen(
     onNext: () -> Unit,
     onPrevious: () -> Unit,
     onSeek: (Long) -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    onMoreClick: (() -> Unit)? = null
 ) {
     BackHandler { onDismiss() }
 
@@ -122,13 +124,24 @@ fun NowPlayingScreen(
                         fontSize = 16.sp,
                         color = MaterialTheme.colorScheme.onBackground
                     )
-                    if (isShuffleEnabled) {
-                        Icon(
-                            Icons.Default.Shuffle, null, Modifier.size(24.dp),
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    } else {
-                        Spacer(Modifier.size(24.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (isShuffleEnabled) {
+                            Icon(
+                                Icons.Default.Shuffle, null, Modifier.size(24.dp),
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        if (onMoreClick != null) {
+                            IconButton(onClick = onMoreClick, modifier = Modifier.size(40.dp)) {
+                                Icon(
+                                    Icons.Default.MoreVert, "More options",
+                                    Modifier.size(24.dp),
+                                    tint = MaterialTheme.colorScheme.onBackground
+                                )
+                            }
+                        } else if (!isShuffleEnabled) {
+                            Spacer(Modifier.size(40.dp))
+                        }
                     }
                 }
 
