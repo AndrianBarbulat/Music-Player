@@ -77,7 +77,15 @@ fun GroupedTab(
     if (selectedItem == null) {
         Column(Modifier.fillMaxSize()) {
             if (items.isNotEmpty()) {
-                EnhancedShuffleToggle(isShuffleEnabled, onShuffleToggle, onReshuffle)
+                // Compact shuffle icons aligned to the right above the group list
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    EnhancedShuffleToggle(isShuffleEnabled, onShuffleToggle, onReshuffle)
+                }
             }
             if (isLoading) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -159,9 +167,7 @@ fun GroupedTab(
             }
 
             if (groupSongs.isNotEmpty()) {
-                EnhancedShuffleToggle(isShuffleEnabled, onShuffleToggle, onReshuffle)
-
-                // Sort + Batch row
+                // Single controls row: Sort | Shuffle + Batch  (or batch controls)
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -174,8 +180,8 @@ fun GroupedTab(
                         showPlayCount = playCounts.isNotEmpty()
                     ) { sortOption = it }
 
-                    if (isBatchMode) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (isBatchMode) {
                             TextButton(onClick = {
                                 selectedIds = if (selectedIds.size == groupSongs.size) emptySet()
                                 else groupSongs.map { it.id }.toSet()
@@ -201,13 +207,16 @@ fun GroupedTab(
                             IconButton(onClick = { isBatchMode = false; selectedIds = emptySet() }) {
                                 Icon(Icons.Default.Close, "Cancel")
                             }
-                        }
-                    } else if (onBatchAddToPlaylist != null) {
-                        IconButton(onClick = { isBatchMode = true }) {
-                            Icon(
-                                Icons.Default.Checklist, "Batch select",
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                        } else {
+                            EnhancedShuffleToggle(isShuffleEnabled, onShuffleToggle, onReshuffle)
+                            if (onBatchAddToPlaylist != null) {
+                                IconButton(onClick = { isBatchMode = true }) {
+                                    Icon(
+                                        Icons.Default.Checklist, "Batch select",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
                         }
                     }
                 }

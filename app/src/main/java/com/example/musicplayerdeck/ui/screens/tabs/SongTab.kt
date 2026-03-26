@@ -5,12 +5,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -18,8 +16,8 @@ import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.SelectAll
-import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -60,7 +58,8 @@ fun SongsTab(
     onFindSongs: () -> Unit,
     playCounts: Map<Long, Int> = emptyMap(),
     onBatchAddToPlaylist: ((Set<Long>) -> Unit)? = null,
-    onSongMoreClick: ((Song) -> Unit)? = null
+    onSongMoreClick: ((Song) -> Unit)? = null,
+    onRefreshLibrary: (() -> Unit)? = null
 ) {
     var sortOption by remember { mutableStateOf(SortOption.NAME_ASC) }
     var isBatchMode by remember { mutableStateOf(false) }
@@ -72,9 +71,7 @@ fun SongsTab(
 
     Column(Modifier.fillMaxSize()) {
         if (songs.isNotEmpty()) {
-            EnhancedShuffleToggle(isShuffleEnabled, onShuffleToggle, onReshuffle)
-
-            // Sort + Batch row
+            // Single controls row: Sort | Shuffle + [Refresh] + Batch  (or batch controls)
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -84,8 +81,8 @@ fun SongsTab(
             ) {
                 SortDropdown(currentSort = sortOption, showPlayCount = playCounts.isNotEmpty()) { sortOption = it }
 
-                if (isBatchMode) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (isBatchMode) {
                         TextButton(onClick = {
                             selectedIds = if (selectedIds.size == songs.size) emptySet()
                             else songs.map { it.id }.toSet()
@@ -101,10 +98,20 @@ fun SongsTab(
                         IconButton(onClick = { isBatchMode = false; selectedIds = emptySet() }) {
                             Icon(Icons.Default.Close, "Cancel")
                         }
-                    }
-                } else {
-                    IconButton(onClick = { isBatchMode = true }) {
-                        Icon(Icons.Default.Checklist, "Batch select", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        EnhancedShuffleToggle(isShuffleEnabled, onShuffleToggle, onReshuffle)
+                        if (onRefreshLibrary != null) {
+                            IconButton(onClick = onRefreshLibrary, modifier = Modifier.size(36.dp)) {
+                                Icon(
+                                    Icons.Default.Refresh, "Refresh library",
+                                    modifier = Modifier.size(20.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        IconButton(onClick = { isBatchMode = true }) {
+                            Icon(Icons.Default.Checklist, "Batch select", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
             }

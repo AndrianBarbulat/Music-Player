@@ -35,11 +35,10 @@ import androidx.compose.material.icons.filled.Album
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -435,7 +434,7 @@ fun MainScreen(
                             .padding(horizontal = 8.dp)
                     ) {}
                 } else {
-                    CenterAlignedTopAppBar(
+                    TopAppBar(
                         title = {
                             Text(
                                 "Music Player Deck",
@@ -444,13 +443,6 @@ fun MainScreen(
                             )
                         },
                         actions = {
-                            IconButton(onClick = onRefreshSongs) {
-                                Icon(
-                                    Icons.Default.Refresh,
-                                    "Refresh library",
-                                    tint = MaterialTheme.colorScheme.onBackground
-                                )
-                            }
                             IconButton(onClick = { isSearchActive = true }) {
                                 Icon(
                                     Icons.Default.Search,
@@ -459,7 +451,7 @@ fun MainScreen(
                                 )
                             }
                         },
-                        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                        colors = TopAppBarDefaults.topAppBarColors(
                             containerColor = Color.Transparent
                         )
                     )
@@ -583,7 +575,7 @@ fun MainScreen(
                             }
                         }
 
-                        Spacer(Modifier.height(16.dp))
+                        Spacer(Modifier.height(4.dp))
 
                         Box(Modifier.weight(1f)) {
                             when (selectedTabIndex) {
@@ -593,7 +585,8 @@ fun MainScreen(
                                     onFindSongs,
                                     playCounts = playCounts,
                                     onBatchAddToPlaylist = onBatchAdd,
-                                    onSongMoreClick = { bottomSheetSong = it }
+                                    onSongMoreClick = { bottomSheetSong = it },
+                                    onRefreshLibrary = onRefreshSongs
                                 )
                                 1 -> PlaylistsTab(
                                     playlists, songs, currentSong, selectedPlaylist,

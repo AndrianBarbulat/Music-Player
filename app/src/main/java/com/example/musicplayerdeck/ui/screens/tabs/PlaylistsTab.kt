@@ -249,6 +249,10 @@ fun PlaylistsTab(
                     }
                 }
 
+                if (!isEditing && plSongs.isNotEmpty()) {
+                    EnhancedShuffleToggle(isShuffleEnabled, onShuffleToggle, onReshuffle)
+                }
+
                 if (onUpdatePlaylist != null) {
                     IconButton(onClick = {
                         if (isEditing) {
@@ -266,10 +270,6 @@ fun PlaylistsTab(
                         )
                     }
                 }
-            }
-
-            if (!isEditing && plSongs.isNotEmpty()) {
-                EnhancedShuffleToggle(isShuffleEnabled, onShuffleToggle, onReshuffle)
             }
 
             if (isEditing) {

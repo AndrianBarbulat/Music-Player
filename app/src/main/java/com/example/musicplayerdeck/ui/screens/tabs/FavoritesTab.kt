@@ -68,8 +68,7 @@ fun FavoritesTab(
 
     Column(Modifier.fillMaxSize()) {
         if (favSongs.isNotEmpty()) {
-            EnhancedShuffleToggle(isShuffleEnabled, onShuffleToggle, onReshuffle)
-
+            // Single controls row: Sort | Shuffle + Batch  (or batch controls)
             Row(
                 Modifier
                     .fillMaxWidth()
@@ -82,8 +81,8 @@ fun FavoritesTab(
                     showPlayCount = playCounts.isNotEmpty()
                 ) { sortOption = it }
 
-                if (isBatchMode) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (isBatchMode) {
                         TextButton(onClick = {
                             selectedIds = if (selectedIds.size == favSongs.size) emptySet()
                             else favSongs.map { it.id }.toSet()
@@ -109,13 +108,16 @@ fun FavoritesTab(
                         IconButton(onClick = { isBatchMode = false; selectedIds = emptySet() }) {
                             Icon(Icons.Default.Close, "Cancel")
                         }
-                    }
-                } else if (onBatchAddToPlaylist != null) {
-                    IconButton(onClick = { isBatchMode = true }) {
-                        Icon(
-                            Icons.Default.Checklist, "Batch select",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                    } else {
+                        EnhancedShuffleToggle(isShuffleEnabled, onShuffleToggle, onReshuffle)
+                        if (onBatchAddToPlaylist != null) {
+                            IconButton(onClick = { isBatchMode = true }) {
+                                Icon(
+                                    Icons.Default.Checklist, "Batch select",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
                     }
                 }
             }
