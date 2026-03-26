@@ -27,9 +27,10 @@ import androidx.compose.material.icons.filled.DragHandle
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.EditOff
 import androidx.compose.material.icons.filled.RemoveCircleOutline
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -155,16 +156,22 @@ fun PlaylistsTab(
 
     if (selectedPlaylist == null) {
         Column(Modifier.fillMaxSize()) {
-            Button(
-                onClick = onCreateClick,
-                modifier = Modifier
+            Row(
+                Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 12.dp),
-                contentPadding = PaddingValues(16.dp)
+                    .padding(top = 8.dp, bottom = 4.dp),
+                horizontalArrangement = Arrangement.End
             ) {
-                Icon(Icons.Default.Add, null)
-                Spacer(Modifier.width(8.dp))
-                Text("Create New Playlist", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                OutlinedButton(
+                    onClick = onCreateClick,
+                    shape = RoundedCornerShape(50),
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+                ) {
+                    Icon(Icons.Default.Add, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("New Playlist", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                }
             }
 
             if (playlists.isEmpty()) {
