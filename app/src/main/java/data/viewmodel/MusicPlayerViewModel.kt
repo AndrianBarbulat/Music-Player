@@ -19,8 +19,11 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaController
 import com.example.musicplayerdeck.data.model.Song
+import com.example.musicplayerdeck.data.repository.SavedPlaybackState
 import com.example.musicplayerdeck.data.repository.fetchSongs
+import com.example.musicplayerdeck.data.repository.loadSavedPlaybackState
 import com.example.musicplayerdeck.data.repository.recordPlay
+import com.example.musicplayerdeck.data.repository.savePlaybackState
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
@@ -34,6 +37,9 @@ class MusicPlayerViewModel(app: Application) : AndroidViewModel(app) {
     private var playerListener: Player.Listener? = null
     private val pendingActions = mutableListOf<(MediaController) -> Unit>()
     private var currentPrefs: SharedPreferences? = null
+
+    // Restoration deferred until the songs list is populated.
+    private var pendingRestoration: SavedPlaybackState? = null
 
     var songs by mutableStateOf<ImmutableList<Song>>(persistentListOf())
         private set
@@ -62,10 +68,18 @@ class MusicPlayerViewModel(app: Application) : AndroidViewModel(app) {
         if (prefs.getBoolean("songs_loaded", false) && hasAudioPermission()) {
             loadSongs(prefs)
         }
+        var lastPositionSaveTime = 0L
         viewModelScope.launch {
             while (true) {
                 if (isPlaying) {
                     playbackPosition = controller?.currentPosition ?: 0L
+                    // Persist position roughly every 10 s while playing so that
+                    // a sudden process death loses at most ~10 s of progress.
+                    val now = System.currentTimeMillis()
+                    if (now - lastPositionSaveTime >= 10_000L) {
+                        persistPlaybackState()
+                        lastPositionSaveTime = now
+                    }
                 }
                 delay(if (isPlaying) 250 else 1000)
             }
@@ -80,6 +94,15 @@ class MusicPlayerViewModel(app: Application) : AndroidViewModel(app) {
             songs = loaded
             prefs.edit { putBoolean("songs_loaded", true) }
             isSongsLoading = false
+
+            // Apply any state restoration that was deferred because songs weren't
+            // loaded yet when the controller first connected.
+            val pending = pendingRestoration
+            val ctrl = controller
+            if (pending != null && ctrl != null) {
+                pendingRestoration = null
+                applyRestoredState(ctrl, pending)
+            }
         }
     }
 
@@ -115,6 +138,36 @@ class MusicPlayerViewModel(app: Application) : AndroidViewModel(app) {
             playbackPosition = mc.currentPosition
         }
 
+        when {
+            // Player is empty → fresh start after process death. Restore from saved state.
+            mc.mediaItemCount == 0 -> {
+                val prefs = currentPrefs
+                if (prefs != null) {
+                    val saved = loadSavedPlaybackState(prefs)
+                    if (saved != null) {
+                        if (songs.isNotEmpty()) {
+                            applyRestoredState(mc, saved)
+                        } else {
+                            // Songs load is still in flight; apply once it finishes.
+                            pendingRestoration = saved
+                        }
+                    }
+                }
+            }
+            // Player has items (e.g. resumed via Bluetooth) but ViewModel lost its
+            // queue (process was recreated). Rebuild the queue from the player.
+            activePlaybackQueue.isEmpty() && songs.isNotEmpty() -> {
+                val rebuilt = (0 until mc.mediaItemCount).mapNotNull { i ->
+                    val id = mc.getMediaItemAt(i).mediaId.toLongOrNull() ?: return@mapNotNull null
+                    songs.find { it.id == id }
+                }.toImmutableList()
+                if (rebuilt.isNotEmpty()) {
+                    activePlaybackQueue = rebuilt
+                    originalPlaylist = rebuilt
+                }
+            }
+        }
+
         val listener = object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 val s = activePlaybackQueue.find { it.id.toString() == mediaItem?.mediaId }
@@ -127,10 +180,15 @@ class MusicPlayerViewModel(app: Application) : AndroidViewModel(app) {
                     val idx = activePlaybackQueue.indexOfFirst { it.id == s.id }
                     if (idx != -1 && idx != shufflePosition) shufflePosition = idx
                 }
+                // Save after every track transition so the correct song is recorded
+                // even if the process dies immediately after auto-advance.
+                persistPlaybackState(positionMs = 0L)
             }
 
             override fun onIsPlayingChanged(playing: Boolean) {
                 isPlaying = playing
+                // Save on pause so the exact stop position survives a process kill.
+                if (!playing) persistPlaybackState()
             }
 
             @androidx.annotation.OptIn(UnstableApi::class)
@@ -173,6 +231,18 @@ class MusicPlayerViewModel(app: Application) : AndroidViewModel(app) {
             activePlaybackQueue = genQueue(playlist, song)
         }
         val idx = activePlaybackQueue.indexOfFirst { it.id == song.id }
+        // Save immediately so the new queue is persisted even if the process dies
+        // before the first onMediaItemTransition callback fires.
+        val prefs = currentPrefs
+        if (prefs != null && activePlaybackQueue.isNotEmpty()) {
+            savePlaybackState(
+                prefs = prefs,
+                queueIds = activePlaybackQueue.map { it.id },
+                queueIndex = if (idx >= 0) idx else 0,
+                positionMs = 0L,
+                songId = song.id,
+            )
+        }
         exec { c ->
             if (changed) c.setMediaItems(buildItems(activePlaybackQueue))
             if (idx != -1) {
@@ -280,6 +350,45 @@ class MusicPlayerViewModel(app: Application) : AndroidViewModel(app) {
     fun seekTo(pos: Long) {
         playbackPosition = pos
         exec { c -> c.seekTo(pos) }
+    }
+
+    // Persist current playback state to SharedPreferences. Called on pause,
+    // track transition, every 10 s during playback, and when a new queue starts.
+    private fun persistPlaybackState(
+        positionMs: Long = controller?.currentPosition ?: playbackPosition,
+    ) {
+        val prefs = currentPrefs ?: return
+        val song = currentSong ?: return
+        val queue = activePlaybackQueue
+        if (queue.isEmpty()) return
+        val idx = queue.indexOfFirst { it.id == song.id }
+        savePlaybackState(
+            prefs = prefs,
+            queueIds = queue.map { it.id },
+            queueIndex = if (idx >= 0) idx else 0,
+            positionMs = positionMs,
+            songId = song.id,
+        )
+    }
+
+    // Populate the player and ViewModel with previously saved state.
+    // Does NOT call play() — the user taps play to resume.
+    private fun applyRestoredState(mc: MediaController, saved: SavedPlaybackState) {
+        val queue = saved.queueIds
+            .mapNotNull { id -> songs.find { it.id == id } }
+            .toImmutableList()
+        if (queue.isEmpty()) return
+
+        activePlaybackQueue = queue
+        originalPlaylist = queue
+        val idx = saved.queueIndex.coerceIn(0, queue.size - 1)
+        currentSong = queue.getOrNull(idx) ?: queue.first()
+        playbackPosition = saved.positionMs
+
+        mc.setMediaItems(buildItems(queue))
+        mc.seekTo(idx, saved.positionMs)
+        mc.prepare()
+        // Intentionally no mc.play() — restored state is shown paused.
     }
 
     private fun buildItem(s: Song): MediaItem {

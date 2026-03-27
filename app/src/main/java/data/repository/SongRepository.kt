@@ -73,13 +73,20 @@ fun fetchSongs(ctx: Context): ImmutableList<Song> {
                     val uri = ContentUris.withAppendedId(
                         MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id
                     )
-                    val artUri = try {
-                        if (albId > 0) ContentUris.withAppendedId(
+                    // Only keep the album art URI if the file can actually be opened.
+                    // Storing an unverified URI causes FileNotFoundException spam in
+                    // Media3's notification provider on every play/pause/track change.
+                    val artUri = if (albId > 0) {
+                        val candidate = ContentUris.withAppendedId(
                             "content://media/external/audio/albumart".toUri(), albId
-                        ) else null
-                    } catch (_: Exception) {
-                        null
-                    }
+                        )
+                        try {
+                            ctx.contentResolver.openAssetFileDescriptor(candidate, "r")?.close()
+                            candidate
+                        } catch (_: Exception) {
+                            null
+                        }
+                    } else null
 
                     songs.add(
                         Song(
