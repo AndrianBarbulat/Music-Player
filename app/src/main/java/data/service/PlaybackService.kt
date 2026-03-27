@@ -23,24 +23,27 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
-        val aa = AudioAttributes.Builder()
-            .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-            .setUsage(C.USAGE_MEDIA)
-            .build()
-        val player = ExoPlayer.Builder(this)
-            .setAudioAttributes(aa, true)
-            .build()
-            .apply {
-                repeatMode = Player.REPEAT_MODE_ALL
-                // Hold a partial wake lock so the CPU doesn't sleep mid-playback.
-                setWakeMode(C.WAKE_MODE_LOCAL)
-            }
-        session = MediaSession.Builder(this, player)
-            .setCallback(PlaybackCallback())
-            .build()
+        // ExoPlayer is initialised lazily in onGetSession() so that codec setup
+        // (c2.android.mp3.decoder etc.) stays off the cold-start critical path.
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
+        if (session == null) {
+            val aa = AudioAttributes.Builder()
+                .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                .setUsage(C.USAGE_MEDIA)
+                .build()
+            val player = ExoPlayer.Builder(this)
+                .setAudioAttributes(aa, true)
+                .build()
+                .apply {
+                    repeatMode = Player.REPEAT_MODE_ALL
+                    setWakeMode(C.WAKE_MODE_LOCAL)
+                }
+            session = MediaSession.Builder(this, player)
+                .setCallback(PlaybackCallback())
+                .build()
+        }
         return session
     }
 

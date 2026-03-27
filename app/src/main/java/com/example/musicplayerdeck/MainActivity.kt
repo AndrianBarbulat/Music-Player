@@ -21,7 +21,8 @@ import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.collections.immutable.ImmutableList
 
 class MainActivity : ComponentActivity() {
-    private lateinit var controllerFuture: ListenableFuture<MediaController>
+    // Nullable so onStop() is safe even if the post() callback hasn't fired yet.
+    private var controllerFuture: ListenableFuture<MediaController>? = null
     private val vm: MusicPlayerViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -69,16 +70,26 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        // Post the connection to after the first frame so that ExoPlayer initialisation
+        // (codec setup, MediaSession binding) stays off the cold-start critical path.
+        // MediaController.buildAsync() is itself async, so no work blocks the UI thread.
+        window.decorView.post { connectToService() }
+    }
+
+    private fun connectToService() {
+        if (isFinishing) return
         val st = SessionToken(this, ComponentName(this, PlaybackService::class.java))
-        controllerFuture = MediaController.Builder(this, st).buildAsync()
-        controllerFuture.addListener(
-            { vm.setController(controllerFuture.get()) },
+        val future = MediaController.Builder(this, st).buildAsync()
+        controllerFuture = future
+        future.addListener(
+            { runCatching { vm.setController(future.get()) } },
             ContextCompat.getMainExecutor(this)
         )
     }
 
     override fun onStop() {
-        MediaController.releaseFuture(controllerFuture)
+        controllerFuture?.let { MediaController.releaseFuture(it) }
+        controllerFuture = null
         super.onStop()
     }
 }

@@ -11,8 +11,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -24,27 +22,22 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Album
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -53,6 +46,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -65,8 +59,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -80,22 +72,19 @@ import com.example.musicplayerdeck.data.repository.loadPlaylists
 import com.example.musicplayerdeck.data.repository.loadRecentlyPlayed
 import com.example.musicplayerdeck.data.repository.savePlaylists
 import com.example.musicplayerdeck.data.repository.syncPlaylistsWithFolders
+import com.example.musicplayerdeck.ui.components.InlineSearchBar
 import com.example.musicplayerdeck.ui.components.MiniPlayer
 import com.example.musicplayerdeck.ui.components.SongOptionsSheet
 import com.example.musicplayerdeck.ui.components.SwipeableSongItem
-import com.example.musicplayerdeck.ui.screens.SongDetailsScreen
+import com.example.musicplayerdeck.ui.components.TabStrip
 import com.example.musicplayerdeck.ui.screens.tabs.FavoritesTab
 import com.example.musicplayerdeck.ui.screens.tabs.GroupedTab
 import com.example.musicplayerdeck.ui.screens.tabs.PlaylistsTab
 import com.example.musicplayerdeck.ui.screens.tabs.SongsTab
 import com.example.musicplayerdeck.ui.theme.AppBackground
-import com.example.musicplayerdeck.ui.theme.AppCard
-import com.example.musicplayerdeck.ui.theme.AppElevated
 import com.example.musicplayerdeck.ui.theme.TealPrimary
-import com.example.musicplayerdeck.ui.theme.TextFaint
 import com.example.musicplayerdeck.ui.theme.TextMuted
 import com.example.musicplayerdeck.ui.theme.TextPrimary
-import com.example.musicplayerdeck.ui.theme.TextSecondary
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
 import kotlinx.collections.immutable.toImmutableList
@@ -103,6 +92,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+// Top-level constant — avoids allocating a new List object on every recomposition.
+private val MAIN_TABS = persistentListOf(
+    "Songs", "Playlists", "Folder", "Favorites", "Album", "Artist", "Recent", "Top"
+)
 
 @Composable
 fun MainScreen(
@@ -192,37 +186,29 @@ fun MainScreen(
             ?: perms[Manifest.permission.READ_EXTERNAL_STORAGE]
             ?: false
         hasPermission = granted
-        if (granted) {
-            onLoadSongs()
-        }
+        if (granted) onLoadSongs()
     }
 
-    val onFindSongs: () -> Unit = {
+    val onFindSongs: () -> Unit = remember(hasPermission) {
         if (hasPermission) {
-            onLoadSongs()
+            { onLoadSongs() }
         } else {
             val permsToReq = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 arrayOf(Manifest.permission.READ_MEDIA_AUDIO, Manifest.permission.POST_NOTIFICATIONS)
             } else {
                 arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
             }
-            launcher.launch(permsToReq)
+            { launcher.launch(permsToReq) }
         }
     }
 
     var isRefreshPending by remember { mutableStateOf(false) }
-
-    val onRefreshSongs: () -> Unit = {
-        if (hasPermission) {
-            isRefreshPending = true
-            onLoadSongs()
-        }
+    val onRefreshSongs: () -> Unit = remember(hasPermission) {
+        { if (hasPermission) { isRefreshPending = true; onLoadSongs() } }
     }
-
-    val onBatchAdd: (Set<Long>) -> Unit = { ids -> showBatchPlaylistPicker = ids }
+    val onBatchAdd: (Set<Long>) -> Unit = remember { { ids -> showBatchPlaylistPicker = ids } }
 
     var selectedTabIndex by remember { mutableIntStateOf(0) }
-    val tabs = listOf("Songs", "Playlists", "Folder", "Favorites", "Album", "Artist", "Recent", "Top")
     var selectedFolder by remember { mutableStateOf<String?>(null) }
     var selectedAlbum by remember { mutableStateOf<String?>(null) }
     var selectedArtist by remember { mutableStateOf<String?>(null) }
@@ -231,34 +217,29 @@ fun MainScreen(
     val folders: ImmutableList<Pair<String, Int>> by remember(songs) {
         derivedStateOf {
             songs.groupBy { it.folder }
-                .mapValues { entry -> entry.value.size }
-                .toList()
-                .sortedBy { it.first }
-                .toImmutableList()
+                .mapValues { e -> e.value.size }
+                .toList().sortedBy { it.first }.toImmutableList()
         }
     }
     val albums: ImmutableList<Pair<String, Int>> by remember(songs) {
         derivedStateOf {
             songs.groupBy { it.album }
-                .mapValues { entry -> entry.value.size }
-                .toList()
-                .sortedBy { it.first }
-                .toImmutableList()
+                .mapValues { e -> e.value.size }
+                .toList().sortedBy { it.first }.toImmutableList()
         }
     }
     val artists: ImmutableList<Pair<String, Int>> by remember(songs) {
         derivedStateOf {
             songs.groupBy { it.artist }
-                .mapValues { entry -> entry.value.size }
-                .toList()
-                .sortedBy { it.first }
-                .toImmutableList()
+                .mapValues { e -> e.value.size }
+                .toList().sortedBy { it.first }.toImmutableList()
         }
     }
 
-    val tabCounts: List<Int> by remember(songs, playlists, folders, albums, artists, favoriteIds, recentlyPlayedIds, playCounts) {
+    // ImmutableList so TabStrip can skip recomposition when counts haven't changed.
+    val tabCounts: ImmutableList<Int> by remember(songs, playlists, folders, albums, artists, favoriteIds, recentlyPlayedIds, playCounts) {
         derivedStateOf {
-            listOf(
+            persistentListOf(
                 songs.size,
                 playlists.size,
                 folders.size,
@@ -272,13 +253,10 @@ fun MainScreen(
     }
 
     LaunchedEffect(selectedTabIndex) {
-        selectedFolder = null
-        selectedAlbum = null
-        selectedArtist = null
-        selectedPlaylist = null
+        selectedFolder = null; selectedAlbum = null
+        selectedArtist = null; selectedPlaylist = null
     }
 
-    // Reload play history whenever the song list or current song changes
     LaunchedEffect(songs, currentSong) {
         if (songs.isNotEmpty()) {
             playCounts = withContext(Dispatchers.IO) { loadPlayCounts(prefs) }
@@ -286,21 +264,32 @@ fun MainScreen(
         }
     }
 
-    // When a user-triggered refresh finishes loading, sync playlists and show the snackbar
     LaunchedEffect(isLoading) {
         if (!isLoading && isRefreshPending && songs.isNotEmpty()) {
             isRefreshPending = false
             val (synced, addedCount) = syncPlaylistsWithFolders(playlists, songs)
-            if (addedCount > 0) {
-                playlists = synced
-                savePlaylists(prefs, playlists)
-            }
+            if (addedCount > 0) { playlists = synced; savePlaylists(prefs, playlists) }
             val syncMsg = if (addedCount > 0) " • $addedCount songs auto-added to playlists" else ""
             snackbarHostState.showSnackbar("Library refreshed — ${songs.size} songs$syncMsg")
         }
     }
 
-    // Batch playlist picker dialog
+    // ── Loading gate ─────────────────────────────────────────────────────────
+    // While the initial library scan is in progress, render only a spinner.
+    // This prevents Compose from measuring and laying out the full Scaffold +
+    // tabs before any data is available, eliminating the massive frame skips
+    // that come from JIT-compiling 4–7 MB of lambda code on the first frame.
+    if (isLoading && songs.isEmpty()) {
+        Box(
+            Modifier.fillMaxSize().background(AppBackground),
+            contentAlignment = Alignment.Center,
+        ) {
+            CircularProgressIndicator(color = TealPrimary, strokeWidth = 2.dp)
+        }
+        return
+    }
+
+    // ── Dialogs / sheets (all rendered via composition, not navigation) ───────
     val batchIds = showBatchPlaylistPicker
     if (batchIds != null && playlists.isNotEmpty()) {
         AlertDialog(
@@ -314,9 +303,8 @@ fun MainScreen(
                                 .fillMaxWidth()
                                 .clickable {
                                     val newIds = (pl.songIds + batchIds.toList()).distinct().toImmutableList()
-                                    val updated = pl.copy(songIds = newIds)
                                     playlists = playlists.map {
-                                        if (it.name == pl.name) updated else it
+                                        if (it.name == pl.name) pl.copy(songIds = newIds) else it
                                     }.toImmutableList()
                                     savePlaylists(prefs, playlists)
                                     showBatchPlaylistPicker = null
@@ -325,10 +313,7 @@ fun MainScreen(
                                 .padding(16.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.PlaylistPlay, null,
-                                tint = TealPrimary
-                            )
+                            Icon(Icons.AutoMirrored.Filled.PlaylistPlay, null, tint = TealPrimary)
                             Spacer(Modifier.width(16.dp))
                             Text(pl.name, fontWeight = FontWeight.Medium, color = TextPrimary)
                         }
@@ -348,14 +333,8 @@ fun MainScreen(
         SongOptionsSheet(
             song = sheetSong,
             onDismiss = { bottomSheetSong = null },
-            onSongInfo = {
-                songDetailsTarget = sheetSong
-                bottomSheetSong = null
-            },
-            onAddToPlaylist = {
-                showBatchPlaylistPicker = setOf(sheetSong.id)
-                bottomSheetSong = null
-            }
+            onSongInfo = { songDetailsTarget = sheetSong; bottomSheetSong = null },
+            onAddToPlaylist = { showBatchPlaylistPicker = setOf(sheetSong.id); bottomSheetSong = null }
         )
     }
 
@@ -381,61 +360,17 @@ fun MainScreen(
             snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
                 if (isSearchActive) {
-                    // Pill-shaped search bar
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .background(AppBackground)
-                            .padding(horizontal = 12.dp, vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(
-                            onClick = { isSearchActive = false; searchQuery = "" },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back", tint = TextSecondary, modifier = Modifier.size(20.dp))
-                        }
-                        Row(
-                            Modifier
-                                .weight(1f)
-                                .background(AppElevated, RoundedCornerShape(12.dp))
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(Icons.Default.Search, null, Modifier.size(18.dp), tint = TextMuted)
-                            Spacer(Modifier.width(8.dp))
-                            Box(Modifier.weight(1f)) {
-                                if (searchQuery.isEmpty()) {
-                                    Text("Search songs, artists…", fontSize = 14.sp, color = TextFaint)
-                                }
-                                BasicTextField(
-                                    value = searchQuery,
-                                    onValueChange = { searchQuery = it },
-                                    singleLine = true,
-                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp, color = TextPrimary),
-                                    cursorBrush = SolidColor(TealPrimary),
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
-                            if (searchQuery.isNotEmpty()) {
-                                IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(20.dp)) {
-                                    Icon(Icons.Default.Close, "Clear", Modifier.size(16.dp), tint = TextMuted)
-                                }
-                            }
-                        }
-                    }
+                    InlineSearchBar(
+                        searchQuery = searchQuery,
+                        onQueryChange = { searchQuery = it },
+                        onDismiss = { isSearchActive = false; searchQuery = "" },
+                    )
                 } else {
                     TopAppBar(
-                        title = {
-                            Text(
-                                "Music Player Deck",
-                                fontWeight = FontWeight.Bold,
-                                color = TextPrimary
-                            )
-                        },
+                        title = { Text("Music Player Deck", fontWeight = FontWeight.Bold, color = TextPrimary) },
                         actions = {
                             IconButton(onClick = { isSearchActive = true }) {
-                                Icon(Icons.Default.Search, "Search", tint = TextSecondary)
+                                Icon(Icons.Default.Search, "Search", tint = TextMuted)
                             }
                         },
                         colors = TopAppBarDefaults.topAppBarColors(containerColor = AppBackground)
@@ -487,11 +422,7 @@ fun MainScreen(
                                         tint = TextMuted.copy(alpha = 0.5f)
                                     )
                                     Spacer(Modifier.height(12.dp))
-                                    Text(
-                                        "No results for \"$debouncedSearch\"",
-                                        color = TextMuted,
-                                        fontSize = 16.sp
-                                    )
+                                    Text("No results for \"$debouncedSearch\"", color = TextMuted, fontSize = 16.sp)
                                 }
                             }
                         } else {
@@ -522,45 +453,13 @@ fun MainScreen(
                         }
                     } else {
                         Spacer(Modifier.height(4.dp))
-                        // Pill-style tab strip
-                        LazyRow(
-                            modifier = Modifier.fillMaxWidth(),
-                            contentPadding = PaddingValues(horizontal = 4.dp),
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            itemsIndexed(tabs) { i, tab ->
-                                val selected = selectedTabIndex == i
-                                val bgColor by animateColorAsState(
-                                    targetValue = if (selected) AppCard else Color.Transparent,
-                                    animationSpec = tween(durationMillis = 200),
-                                    label = "tabBg"
-                                )
-                                val textColor by animateColorAsState(
-                                    targetValue = if (selected) TealPrimary else TextMuted,
-                                    animationSpec = tween(durationMillis = 200),
-                                    label = "tabText"
-                                )
-                                Column(
-                                    Modifier
-                                        .background(bgColor, RoundedCornerShape(10.dp))
-                                        .clickable { selectedTabIndex = i }
-                                        .padding(horizontal = 14.dp, vertical = 7.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally
-                                ) {
-                                    Text(tab, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = textColor)
-                                    val count = tabCounts.getOrElse(i) { 0 }
-                                    Text(
-                                        count.toString(),
-                                        fontSize = 9.sp,
-                                        color = textColor.copy(alpha = if (selected) 1f else 0.6f),
-                                        lineHeight = 11.sp
-                                    )
-                                }
-                            }
-                        }
-
+                        TabStrip(
+                            tabs = MAIN_TABS,
+                            tabCounts = tabCounts,
+                            selectedIndex = selectedTabIndex,
+                            onTabSelected = { selectedTabIndex = it },
+                        )
                         Spacer(Modifier.height(4.dp))
-
                         Box(Modifier.weight(1f)) {
                             when (selectedTabIndex) {
                                 0 -> SongsTab(
@@ -670,8 +569,8 @@ fun MainScreen(
     // Full Now Playing overlay — placed after Scaffold so it draws on top
     AnimatedVisibility(
         visible = isNowPlayingOpen && currentSong != null,
-        enter = slideInVertically(initialOffsetY = { fullHeight -> fullHeight }),
-        exit = slideOutVertically(targetOffsetY = { fullHeight -> fullHeight })
+        enter = slideInVertically(initialOffsetY = { it }),
+        exit = slideOutVertically(targetOffsetY = { it })
     ) {
         val nowSong = currentSong
         if (nowSong != null) {
@@ -693,8 +592,8 @@ fun MainScreen(
     // Song details overlay — placed last so it draws on top of everything
     AnimatedVisibility(
         visible = songDetailsTarget != null,
-        enter = slideInVertically(initialOffsetY = { fullHeight -> fullHeight }),
-        exit = slideOutVertically(targetOffsetY = { fullHeight -> fullHeight })
+        enter = slideInVertically(initialOffsetY = { it }),
+        exit = slideOutVertically(targetOffsetY = { it })
     ) {
         val detailsSong = songDetailsTarget
         if (detailsSong != null) {

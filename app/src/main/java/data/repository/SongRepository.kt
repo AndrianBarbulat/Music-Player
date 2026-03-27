@@ -4,7 +4,7 @@ import android.content.ContentUris
 import android.content.Context
 import android.os.Build
 import android.provider.MediaStore
-import androidx.core.net.toUri
+import android.net.Uri
 import com.example.musicplayerdeck.data.model.Song
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
@@ -73,19 +73,10 @@ fun fetchSongs(ctx: Context): ImmutableList<Song> {
                     val uri = ContentUris.withAppendedId(
                         MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, id
                     )
-                    // Only keep the album art URI if the file can actually be opened.
-                    // Storing an unverified URI causes FileNotFoundException spam in
-                    // Media3's notification provider on every play/pause/track change.
                     val artUri = if (albId > 0) {
-                        val candidate = ContentUris.withAppendedId(
-                            "content://media/external/audio/albumart".toUri(), albId
+                        ContentUris.withAppendedId(
+                            Uri.parse("content://media/external/audio/albumart"), albId
                         )
-                        try {
-                            ctx.contentResolver.openAssetFileDescriptor(candidate, "r")?.close()
-                            candidate
-                        } catch (_: Exception) {
-                            null
-                        }
                     } else null
 
                     songs.add(

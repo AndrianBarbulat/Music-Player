@@ -1,0 +1,36 @@
+# Baseline profile for Music Player Deck
+# H = hot (interpreted), S = startup, P = post-startup
+# HSP = pre-compile for AOT at install time
+
+# ── Activity / Service ────────────────────────────────────────────────────────
+HSPLcom/example/musicplayerdeck/MainActivity;->**(**)V
+HSPLcom/example/musicplayerdeck/service/PlaybackService;->**(**)V
+
+# ── ViewModel & data layer ────────────────────────────────────────────────────
+HSPLcom/example/musicplayerdeck/viewmodel/MusicPlayerViewModel;->**(**)V
+HSPLcom/example/musicplayerdeck/data/model/Song;->**(**)V
+HSPLcom/example/musicplayerdeck/data/repository/**;->**(**)V
+
+# ── Theme ─────────────────────────────────────────────────────────────────────
+HSPLcom/example/musicplayerdeck/ui/theme/ThemeKt;->**(**)V
+HSPLcom/example/musicplayerdeck/ui/theme/ColorKt;->**(**)V
+HSPLcom/example/musicplayerdeck/ui/theme/TypeKt;->**(**)V
+
+# ── Top-level screens ─────────────────────────────────────────────────────────
+HSPLcom/example/musicplayerdeck/ui/screens/MainScreenKt;->**(**)V
+HSPLcom/example/musicplayerdeck/ui/screens/NowPlayingScreenKt;->**(**)V
+
+# ── Tabs ──────────────────────────────────────────────────────────────────────
+HSPLcom/example/musicplayerdeck/ui/screens/tabs/SongsTabKt;->**(**)V
+HSPLcom/example/musicplayerdeck/ui/screens/tabs/PlaylistsTabKt;->**(**)V
+HSPLcom/example/musicplayerdeck/ui/screens/tabs/GroupedTabKt;->**(**)V
+HSPLcom/example/musicplayerdeck/ui/screens/tabs/FavoritesTabKt;->**(**)V
+
+# ── Components ────────────────────────────────────────────────────────────────
+HSPLcom/example/musicplayerdeck/ui/components/MiniPlayerKt;->**(**)V
+HSPLcom/example/musicplayerdeck/ui/components/SongItemKt;->**(**)V
+HSPLcom/example/musicplayerdeck/ui/components/GroupItemKt;->**(**)V
+HSPLcom/example/musicplayerdeck/ui/components/TabStripKt;->**(**)V
+HSPLcom/example/musicplayerdeck/ui/components/InlineSearchBarKt;->**(**)V
+HSPLcom/example/musicplayerdeck/ui/components/AnimatedEqualizerKt;->**(**)V
+HSPLcom/example/musicplayerdeck/ui/components/EnhancedShuffleToggleKt;->**(**)V

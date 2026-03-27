@@ -1,9 +1,9 @@
 package com.example.musicplayerdeck.data.model
 
 import android.net.Uri
-import androidx.compose.runtime.Stable
+import androidx.compose.runtime.Immutable
 
-@Stable
+@Immutable
 data class Song(
     val id: Long,
     val title: String,
