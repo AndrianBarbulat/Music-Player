@@ -104,6 +104,17 @@ class MusicPlayerViewModel(app: Application) : AndroidViewModel(app) {
         controller = mc
         isPlaying = mc.isPlaying
 
+        // Resync current song in case the track auto-advanced while the
+        // controller was disconnected (e.g. screen was off).
+        val mcMediaId = mc.currentMediaItem?.mediaId
+        if (mcMediaId != null && currentSong?.id?.toString() != mcMediaId) {
+            currentSong = activePlaybackQueue.find { it.id.toString() == mcMediaId }
+                ?: songs.find { it.id.toString() == mcMediaId }
+        }
+        if (currentSong != null) {
+            playbackPosition = mc.currentPosition
+        }
+
         val listener = object : Player.Listener {
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                 val s = activePlaybackQueue.find { it.id.toString() == mediaItem?.mediaId }
