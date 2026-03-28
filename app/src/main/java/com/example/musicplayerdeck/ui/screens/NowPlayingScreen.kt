@@ -5,6 +5,7 @@ package com.example.musicplayerdeck.ui.screens
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -21,12 +22,16 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.QueueMusic
+import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -41,13 +46,14 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.example.musicplayerdeck.ui.components.QueueSheet
+import kotlinx.collections.immutable.ImmutableList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -67,16 +73,23 @@ import com.example.musicplayerdeck.util.formatDurationLong
 fun NowPlayingScreen(
     song: Song,
     isPlaying: Boolean,
-    isShuffleEnabled: Boolean,
     playbackPositionProvider: () -> Long,
     onPlayPause: () -> Unit,
     onNext: () -> Unit,
     onPrevious: () -> Unit,
     onSeek: (Long) -> Unit,
+    queue: ImmutableList<Song>,
+    onSkipToQueueIndex: (Int) -> Unit,
+    isFavorite: Boolean,
+    onFavoriteToggle: () -> Unit,
+    isRepeatOne: Boolean,
+    onRepeatToggle: () -> Unit,
     onDismiss: () -> Unit,
     onMoreClick: (() -> Unit)? = null
 ) {
     BackHandler { onDismiss() }
+
+    var showQueueSheet by remember { mutableStateOf(false) }
 
     val pos = playbackPositionProvider()
     var isDragging by remember { mutableStateOf(false) }
@@ -112,15 +125,6 @@ fun NowPlayingScreen(
                         tint = TextSecondary
                     )
                 }
-                if (isShuffleEnabled) {
-                    Icon(
-                        Icons.Default.Shuffle, null,
-                        Modifier.size(18.dp),
-                        tint = TealPrimary
-                    )
-                } else {
-                    Spacer(Modifier.size(18.dp))
-                }
                 if (onMoreClick != null) {
                     IconButton(onClick = onMoreClick, modifier = Modifier.size(44.dp)) {
                         Icon(
@@ -139,7 +143,7 @@ fun NowPlayingScreen(
             // Large album art
             Box(
                 Modifier
-                    .fillMaxWidth(0.82f)
+                    .fillMaxWidth()
                     .aspectRatio(1f)
                     .clip(RoundedCornerShape(14.dp))
                     .background(AppElevated),
@@ -160,27 +164,45 @@ fun NowPlayingScreen(
 
             Spacer(Modifier.height(32.dp))
 
-            // Song info
-            Text(
-                song.title,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 20.sp,
-                color = TextPrimary,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .basicMarquee(iterations = Int.MAX_VALUE, repeatDelayMillis = 2000)
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                song.artist,
-                fontSize = 14.sp,
-                color = TextSecondary,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            // Song info + favorite
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.Top
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        song.title,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 20.sp,
+                        color = TextPrimary,
+                        maxLines = 1,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .basicMarquee(iterations = Int.MAX_VALUE, repeatDelayMillis = 2000)
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        song.artist,
+                        fontSize = 14.sp,
+                        color = TextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clickable(onClick = onFavoriteToggle),
+                    contentAlignment = Alignment.TopCenter
+                ) {
+                    Icon(
+                        if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                        contentDescription = "Toggle Favorite",
+                        modifier = Modifier.size(24.dp),
+                        tint = if (isFavorite) TealPrimary else TextSecondary
+                    )
+                }
+            }
 
             Spacer(Modifier.height(32.dp))
 
@@ -228,20 +250,26 @@ fun NowPlayingScreen(
 
             Spacer(Modifier.height(32.dp))
 
-            // Controls row
+            // Controls row: queue | prev | play/pause | next | repeat
             Row(
                 Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = onPrevious, Modifier.size(56.dp)) {
+                IconButton(onClick = { showQueueSheet = true }, Modifier.size(48.dp)) {
+                    Icon(
+                        Icons.AutoMirrored.Filled.QueueMusic, "Queue",
+                        Modifier.size(24.dp),
+                        tint = if (showQueueSheet) TealPrimary else TextSecondary
+                    )
+                }
+                IconButton(onClick = onPrevious, Modifier.size(48.dp)) {
                     Icon(
                         Icons.Default.SkipPrevious, "Previous",
-                        Modifier.size(28.dp),
+                        Modifier.size(26.dp),
                         tint = TextSecondary
                     )
                 }
-                // Play/pause: 52dp circle, Primary bg, Background icon
                 Box(
                     Modifier
                         .size(56.dp)
@@ -258,14 +286,34 @@ fun NowPlayingScreen(
                         )
                     }
                 }
-                IconButton(onClick = onNext, Modifier.size(56.dp)) {
+                IconButton(onClick = onNext, Modifier.size(48.dp)) {
                     Icon(
                         Icons.Default.SkipNext, "Next",
-                        Modifier.size(28.dp),
+                        Modifier.size(26.dp),
                         tint = TextSecondary
                     )
                 }
+                IconButton(onClick = onRepeatToggle, Modifier.size(48.dp)) {
+                    Icon(
+                        if (isRepeatOne) Icons.Default.RepeatOne else Icons.Default.Repeat,
+                        contentDescription = "Repeat",
+                        modifier = Modifier.size(22.dp),
+                        tint = if (isRepeatOne) TealPrimary else TextMuted
+                    )
+                }
             }
+        }
+
+        if (showQueueSheet) {
+            QueueSheet(
+                queue = queue,
+                currentSong = song,
+                onSkipToIndex = { index ->
+                    onSkipToQueueIndex(index)
+                    showQueueSheet = false
+                },
+                onDismiss = { showQueueSheet = false }
+            )
         }
     }
 }

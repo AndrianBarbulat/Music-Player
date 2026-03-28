@@ -39,6 +39,8 @@ class MainActivity : ComponentActivity() {
                 }
                 val onShuffle: () -> Unit = remember { { vm.toggleShuffleMode(prefs) } }
                 val onReshuffle: () -> Unit = remember { { vm.reshuffleQueue() } }
+                val onRepeat: () -> Unit = remember { { vm.toggleRepeatOne() } }
+                val onSkipToQueue: (Int) -> Unit = remember { { i: Int -> vm.skipToQueueIndex(i) } }
                 val onPP: () -> Unit = remember { { vm.togglePlayPause() } }
                 val onNext: () -> Unit = remember { { vm.playNext() } }
                 val onPrev: () -> Unit = remember { { vm.playPrevious() } }
@@ -52,6 +54,10 @@ class MainActivity : ComponentActivity() {
                     currentSong = vm.currentSong,
                     isPlaying = vm.isPlaying,
                     isShuffleEnabled = vm.isShuffleEnabled,
+                    isRepeatOne = vm.isRepeatOne,
+                    onRepeatToggle = onRepeat,
+                    activeQueue = vm.activePlaybackQueue,
+                    onSkipToQueueIndex = onSkipToQueue,
                     playbackPositionProvider = { vm.playbackPosition },
                     shufflePosition = vm.shufflePosition,
                     queueSize = vm.activePlaybackQueue.size,

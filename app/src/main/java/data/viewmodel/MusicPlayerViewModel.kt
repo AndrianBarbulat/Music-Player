@@ -60,6 +60,8 @@ class MusicPlayerViewModel(app: Application) : AndroidViewModel(app) {
     private var shuffleOrder by mutableStateOf<ImmutableList<Int>>(persistentListOf())
     var shufflePosition by mutableIntStateOf(0)
         private set
+    var isRepeatOne by mutableStateOf(false)
+        private set
 
     fun initialize(prefs: SharedPreferences) {
         currentPrefs = prefs
@@ -326,6 +328,19 @@ class MusicPlayerViewModel(app: Application) : AndroidViewModel(app) {
                 c.prepare()
                 if (wp) c.play()
             }
+        }
+    }
+
+    fun toggleRepeatOne() {
+        isRepeatOne = !isRepeatOne
+        exec { c -> c.repeatMode = if (isRepeatOne) Player.REPEAT_MODE_ONE else Player.REPEAT_MODE_ALL }
+    }
+
+    fun skipToQueueIndex(index: Int) {
+        exec { c ->
+            c.seekTo(index, 0)
+            c.prepare()
+            c.play()
         }
     }
 
