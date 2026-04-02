@@ -5,11 +5,13 @@ A modern, feature-rich offline music player for Android built with Jetpack Compo
 ## Screenshots
 
 <div align="center">
-  <img src="ProjectPresentationImages/01.jpg" alt="Songs tab with library view" width="180" />
-  <img src="ProjectPresentationImages/02.jpg" alt="Now playing screen" width="180" />
-  <img src="ProjectPresentationImages/03.jpg" alt="Playlist management" width="180" />
-  <img src="ProjectPresentationImages/04.jpg" alt="Search and browse" width="180" />
-  <img src="ProjectPresentationImages/05.jpg" alt="Folder and album view" width="180" />
+  <img src="ProjectPresentationImages/1.jpg" alt="Songs tab with library view" width="180" />
+  <img src="ProjectPresentationImages/2.jpg" alt="Now playing screen" width="180" />
+  <img src="ProjectPresentationImages/3.jpg" alt="Playlist management" width="180" />
+  <img src="ProjectPresentationImages/4.jpg" alt="Search and browse" width="180" />
+  <img src="ProjectPresentationImages/5.jpg" alt="Folder and album view" width="180" />
+  <img src="ProjectPresentationImages/6.jpg" alt="Search and browse" width="180" />
+  <img src="ProjectPresentationImages/7.jpg" alt="Folder and album view" width="180" />
 </div>
 
 ## Features
