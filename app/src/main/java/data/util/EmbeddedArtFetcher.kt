@@ -20,7 +20,9 @@ import java.io.File
  *
  * Resolution order:
  *  1. In-memory LRU cache (keyed by content URI string)
- *  2. Embedded picture from ID3/Vorbis/MP4 metadata via [MediaMetadataRetriever]
+ *  2a. Embedded picture via [MediaMetadataRetriever.setDataSource] with file path (fast, no IPC)
+ *  2b. Same retriever retried with the content URI — fixes EMUI scoped-storage bug where
+ *      file-path access silently returns null even for files with embedded art
  *  3. cover.jpg / folder.jpg / album.jpg (+ .png variants) in the same directory
  *  4. Throws [NoSuchElementException] → Coil shows the error/placeholder drawable
  */
@@ -66,14 +68,27 @@ class EmbeddedArtFetcher(
     )
 
     private fun extractEmbeddedArt(context: Context, song: Song): ByteArray? {
+        // Attempt 1: file path (faster, no IPC) — silently returns null on EMUI due to
+        // scoped-storage enforcement even when the path is valid, so we always try the
+        // content URI fallback when this yields nothing.
+        if (song.filePath.isNotEmpty()) {
+            val mmr = MediaMetadataRetriever()
+            try {
+                mmr.setDataSource(song.filePath)
+                val bytes = mmr.embeddedPicture
+                if (bytes != null) return bytes
+            } catch (_: Exception) {
+                // path inaccessible — fall through to URI attempt
+            } finally {
+                mmr.release()
+            }
+        }
+
+        // Attempt 2: content URI — brokers access through Android's content resolver,
+        // bypassing EMUI's file-path restrictions on Android 10+.
         val mmr = MediaMetadataRetriever()
         return try {
-            // Prefer file path — avoids an IPC round-trip through the content resolver
-            if (song.filePath.isNotEmpty()) {
-                mmr.setDataSource(song.filePath)
-            } else {
-                mmr.setDataSource(context, song.uri)
-            }
+            mmr.setDataSource(context, song.uri)
             mmr.embeddedPicture
         } catch (_: Exception) {
             null
