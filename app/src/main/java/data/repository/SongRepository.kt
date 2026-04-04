@@ -89,7 +89,8 @@ fun fetchSongs(ctx: Context): ImmutableList<Song> {
                             uri = uri,
                             albumArtUri = artUri,
                             folder = folder,
-                            dateAdded = dateAdded
+                            dateAdded = dateAdded,
+                            filePath = path
                         )
                     )
                 } catch (_: Exception) {

@@ -85,7 +85,7 @@ fun SongOptionsSheet(
             ) {
                 Icon(Icons.Default.MusicNote, null, Modifier.size(20.dp), tint = TextMuted)
                 AsyncImage(
-                    model = song.albumArtUri,
+                    model = song,
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop

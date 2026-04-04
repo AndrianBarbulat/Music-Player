@@ -155,7 +155,7 @@ fun NowPlayingScreen(
                     tint = TextMuted.copy(alpha = 0.4f)
                 )
                 AsyncImage(
-                    model = song.albumArtUri,
+                    model = song,
                     contentDescription = null,
                     modifier = Modifier.fillMaxSize(),
                     contentScale = ContentScale.Crop

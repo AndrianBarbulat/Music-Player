@@ -31,6 +31,7 @@ import com.example.musicplayerdeck.ui.theme.TextFaint
 import com.example.musicplayerdeck.ui.theme.TextMuted
 import com.example.musicplayerdeck.ui.theme.TextPrimary
 import com.example.musicplayerdeck.ui.theme.TextSecondary
+import androidx.compose.foundation.layout.statusBarsPadding
 
 @Composable
 fun InlineSearchBar(
@@ -43,6 +44,7 @@ fun InlineSearchBar(
         modifier
             .fillMaxWidth()
             .background(AppBackground)
+            .statusBarsPadding()
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

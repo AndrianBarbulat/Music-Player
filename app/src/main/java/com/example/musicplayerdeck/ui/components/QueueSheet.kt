@@ -136,7 +136,7 @@ fun QueueSheet(
                             ) {
                                 Icon(Icons.Default.MusicNote, null, Modifier.size(18.dp), tint = TextMuted)
                                 AsyncImage(
-                                    model = song.albumArtUri,
+                                    model = song,
                                     contentDescription = null,
                                     modifier = Modifier.fillMaxSize(),
                                     contentScale = ContentScale.Crop

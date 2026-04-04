@@ -560,7 +560,7 @@ fun CreatePlaylistScreen(
                                                 tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
                                             )
                                             AsyncImage(
-                                                model = song.albumArtUri,
+                                                model = song,
                                                 contentDescription = null,
                                                 modifier = Modifier.fillMaxSize(),
                                                 contentScale = ContentScale.Crop
@@ -635,7 +635,7 @@ fun CreatePlaylistScreen(
                                             tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
                                         )
                                         AsyncImage(
-                                            model = song.albumArtUri,
+                                            model = song,
                                             contentDescription = null,
                                             modifier = Modifier.fillMaxSize(),
                                             contentScale = ContentScale.Crop

@@ -2,7 +2,6 @@ package com.example.musicplayerdeck.util
 
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
-import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -11,27 +10,28 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import coil.ImageLoader
+import coil.imageLoader
 import coil.request.ImageRequest
 import coil.request.SuccessResult
+import com.example.musicplayerdeck.data.model.Song
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 @Composable
-fun rememberDominantColor(uri: Uri?, defaultColor: Color): Color {
+fun rememberDominantColor(song: Song?, defaultColor: Color): Color {
     var color by remember { mutableStateOf(defaultColor) }
     val ctx = LocalContext.current
 
-    LaunchedEffect(uri) {
-        if (uri == null) {
+    LaunchedEffect(song?.uri) {
+        if (song == null) {
             color = defaultColor
             return@LaunchedEffect
         }
         withContext(Dispatchers.IO) {
             try {
-                val loader = ImageLoader(ctx)
+                val loader = ctx.imageLoader
                 val req = ImageRequest.Builder(ctx)
-                    .data(uri)
+                    .data(song)
                     .allowHardware(false)
                     .build()
                 val result = loader.execute(req)
